@@ -1,0 +1,136 @@
+# Apache SkyWalking SDK test fixture (GRO-1383) - sdk-kit SPEC section 8.
+#
+# Same images as the Grow stack template (platform agent-core seed
+# gro1285-apache-templates.data-platform.ts, catalog key `apache-skywalking`):
+#   apache/skywalking-banyandb:0.10.3   storage (standalone)
+#   apache/skywalking-oap-server:10.4.0 OAP: gRPC 11800, REST/GraphQL 12800  (compose name `apache-skywalking`)
+#   apache/skywalking-ui:10.4.0         web UI 8080 (profile `ui`, not needed by the SDK tests)
+#
+# Deviations from the stack template (all needed by the SDK, see NOTES.md):
+#   SW_RECEIVER_ZIPKIN / SW_QUERY_ZIPKIN = default   OTLP spans are stored in SkyWalking's Zipkin
+#       model and are only readable through the Zipkin v2 query API (:9412/zipkin). Without these
+#       two the OTLP trace handler has nowhere to read them back from.
+#   SW_OTEL_RECEIVER_ENABLED_HANDLERS             pinned explicitly (same as the image default).
+#   SW_SEARCHABLE_LOGS_TAG_KEYS                   adds trace_id, span_id, run_id so OTLP logs can be
+#       correlated/found by tag (OTLP log traceId/spanId are not mapped to native TraceContext).
+#   SW_ZIPKIN_SEARCHABLE_TAG_KEYS                 adds run_id for annotationQuery tests.
+#
+# No host ports are published. Test containers use (also written to /bootstrap/env):
+#   GROW_APACHE_SKYWALKING_URL=http://apache-skywalking:12800        GraphQL (/graphql) + native REST (/v3/*)
+#   GROW_APACHE_SKYWALKING_OTLP_ENDPOINT=http://apache-skywalking:11800  OTLP gRPC (traces, logs, metrics)
+#   GROW_APACHE_SKYWALKING_ZIPKIN_URL=http://apache-skywalking:9412/zipkin  Zipkin v2 query (OTLP traces)
+#
+# Run: docker compose -p <unique> -f compose.service.yml up -d --wait apache-skywalking
+#      docker compose -p <unique> -f compose.service.yml run --rm bootstrap
+#      ... tests ...
+#      docker compose -p <unique> -f compose.service.yml down -v   (always)
+
+services:
+  banyandb:
+    image: apache/skywalking-banyandb:0.10.3@sha256:af7cd29e817561ac15727ef8b76259ad1bf570b90f6fe8f49bd91a6d798b8cce
+    command: ["standalone"]
+    environment:
+      TZ: UTC
+    # Data on tmpfs (RAM): test data is throw-away, and BanyanDB refuses property writes when the
+    # filesystem holding its data is above --property-max-disk-usage-percent (95). On a shared CI/dev
+    # host whose disk is >95% full a disk volume made OAP crash-loop ("failed to publish property").
+    tmpfs:
+      - /tmp:size=1g
+    healthcheck:
+      # busybox base: wget the BanyanDB HTTP health route (17913)
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:17913/api/healthz"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+      start_period: 5s
+    # BanyanDB's memory protector stops writes at ~80% of the cgroup limit; 1g (the stack minimum)
+    # hit "memory usage exceeds limit" during OAP's schema install, so the fixture gives it 1.5g.
+    mem_limit: 1536m
+
+  service:   # service under test (harness contract); reachable as `apache-skywalking`
+    networks:
+      default:
+        aliases: [apache-skywalking]
+    image: apache/skywalking-oap-server:10.4.0@sha256:091d3a7f7ed5f3ec6fb43c2728cafedbe01372c63c7913a1332d51da581f8234
+    depends_on:
+      banyandb:
+        condition: service_healthy
+    # OAP exits if BanyanDB rejects its first schema/property writes; let it retry like k8s would.
+    restart: on-failure:3
+    environment:
+      TZ: UTC
+      # --- stack template values ---
+      SW_STORAGE: banyandb
+      SW_STORAGE_BANYANDB_TARGETS: banyandb:17912
+      SW_HEALTH_CHECKER: default
+      JAVA_OPTS: "-Xms768m -Xmx1024m"
+      # --- SDK fixture additions ---
+      SW_HEALTH_CHECKER_INTERVAL_SECONDS: "5"
+      SW_OTEL_RECEIVER: default
+      SW_OTEL_RECEIVER_ENABLED_HANDLERS: otlp-traces,otlp-metrics,otlp-logs
+      SW_RECEIVER_ZIPKIN: default
+      SW_QUERY_ZIPKIN: default
+      SW_ZIPKIN_SEARCHABLE_TAG_KEYS: http.method,run_id
+      SW_SEARCHABLE_LOGS_TAG_KEYS: level,http.status_code,trace_id,span_id,run_id
+      SW_SEARCHABLE_TAG_KEYS: http.method,http.status_code,rpc.status_code,db.type,db.instance,mq.queue,mq.topic,mq.broker,run_id
+    healthcheck:
+      # no curl/wget in the image: bash /dev/tcp HTTP probe of the health-checker score (0 = healthy)
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/12800 &&
+          printf 'POST /graphql HTTP/1.0\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 32\r\n\r\n{"query":"{checkHealth{score}}"}' >&3 &&
+          grep -q '"score":0' <&3
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+    mem_limit: 2g
+
+  ui:
+    profiles: ["ui"]
+    image: apache/skywalking-ui:10.4.0@sha256:7103481938b4b27e5fc22e4693675fd301c5f5293438e8aebcb29e97ca9fed68
+    depends_on:
+      service:
+        condition: service_healthy
+    environment:
+      SW_OAP_ADDRESS: http://apache-skywalking:12800
+      SW_ZIPKIN_ADDRESS: http://apache-skywalking:9412
+      JAVA_OPTS: "-Xms128m -Xmx256m"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET / HTTP/1.0\\r\\n\\r\\n' >&3 && head -n 1 <&3 | grep -q ' 200'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    mem_limit: 512m
+
+  bootstrap:
+    image: curlimages/curl:8.23.0
+    user: "0:0" # the named volume is root-owned; env file is chmod 0644 so any test uid can read it
+    depends_on:
+      service:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/scripts/bootstrap.sh"]
+    environment:
+      SW_URL: http://apache-skywalking:12800
+      SW_OTLP: http://apache-skywalking:11800
+      SW_ZIPKIN: http://apache-skywalking:9412/zipkin
+      BOOTSTRAP_DIR: /bootstrap
+    volumes:
+      - ./bootstrap:/scripts:ro
+      - bootstrap:/bootstrap
+    restart: "no"
+
+  # Template-added services follow this shape (shown for reference, not started here):
+  # test-<lang>:
+  #   profiles: ["<lang>"]
+  #   build: { context: .., dockerfile: docker/Dockerfile.<lang> }
+  #   depends_on: { bootstrap: { condition: service_completed_successfully } }
+  #   environment: { GROW_APACHE_SKYWALKING_URL: "http://apache-skywalking:12800" }
+  #   volumes: [ "bootstrap:/bootstrap:ro" ]
+
+volumes:
+  bootstrap:
