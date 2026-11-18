@@ -30,7 +30,7 @@ x-test: &test
   volumes:
     - bootstrap:/bootstrap:ro
   environment:
-    GROW_APACHE_SKYWALKING_URL: ${GROW_APACHE_SKYWALKING_URL:-http://service:12800}
+    GROW_APACHE_SKYWALKING_URL: ${GROW_APACHE_SKYWALKING_URL:-http://apache-skywalking:12800}
     GROW_BOOTSTRAP_ENV: /bootstrap/env
     GROW_TEST_RUN_ID: ${GROW_TEST_RUN_ID:-local}
   init: true
