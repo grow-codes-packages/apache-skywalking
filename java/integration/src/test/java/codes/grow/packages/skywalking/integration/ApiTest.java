@@ -518,8 +518,11 @@ class ApiTest {
     Topology svcTopo = client.query().topology(window, TopologyOptions.forService(svcA));
     assertTrue(svcTopo.nodes().stream().anyMatch(n -> n.name().equals(svcB)));
     assertFalse(client.query().topology().nodes().isEmpty());
-    assertFalse(
-        client.query().topologyAsync(window, TopologyOptions.forLayer("GENERAL")).join().nodes().isEmpty());
+    // OAP fills the per-layer topology a little after the global one: poll instead of asserting once.
+    poll(
+        "topology GENERAL",
+        () -> client.query().topologyAsync(window, TopologyOptions.forLayer("GENERAL")).join(),
+        tp -> !tp.nodes().isEmpty());
   }
 
   @Test
