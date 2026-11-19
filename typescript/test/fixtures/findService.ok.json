@@ -1,0 +1,27 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($n:String!){findService(serviceName:$n){id name layers}}",
+      "variables": {
+        "n": "sw-native-a-1fddf66a"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "findService": {
+          "id": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1",
+          "name": "sw-native-a-1fddf66a",
+          "layers": ["GENERAL"]
+        }
+      }
+    }
+  }
+}

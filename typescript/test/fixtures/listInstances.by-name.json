@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($d:Duration!,$s:ServiceCondition!){listInstancesByName(duration:$d,service:$s){id name}}",
+      "variables": {
+        "d": {
+          "start": "2026-11-18 2040",
+          "end": "2026-11-18 2115",
+          "step": "MINUTE"
+        },
+        "s": {
+          "serviceName": "sw-otlp-1fddf66a"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "listInstancesByName": [
+          {
+            "id": "c3ctb3RscC0xZmRkZjY2YQ==.1_aW5zdC0xZmRkZjY2YQ==",
+            "name": "inst-1fddf66a"
+          }
+        ]
+      }
+    }
+  }
+}

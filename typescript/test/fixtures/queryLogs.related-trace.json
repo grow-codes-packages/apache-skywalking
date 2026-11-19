@@ -1,0 +1,55 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($c:LogQueryCondition){queryLogs(condition:$c){errorReason logs{serviceName serviceId serviceInstanceName endpointName traceId timestamp contentType content tags{key value}}}}",
+      "variables": {
+        "c": {
+          "relatedTrace": {
+            "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775"
+          },
+          "paging": {
+            "pageNum": 1,
+            "pageSize": 20
+          }
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "queryLogs": {
+          "errorReason": null,
+          "logs": [
+            {
+              "serviceName": "sw-native-a-1fddf66a",
+              "serviceId": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1",
+              "serviceInstanceName": "inst-a-1fddf66a",
+              "endpointName": "/native/entry",
+              "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775",
+              "timestamp": 1795036241725,
+              "contentType": "TEXT",
+              "content": "order created native-log-1fddf66a",
+              "tags": [
+                {
+                  "key": "level",
+                  "value": "WARN"
+                },
+                {
+                  "key": "run_id",
+                  "value": "1fddf66a"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/v3/logs",
+    "body": [
+      {
+        "timestamp": 1795036241725,
+        "service": "sw-native-a-1fddf66a",
+        "serviceInstance": "inst-a-1fddf66a",
+        "endpoint": "/native/entry",
+        "body": {
+          "text": {
+            "text": "order created native-log-1fddf66a"
+          }
+        },
+        "traceContext": {
+          "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775",
+          "traceSegmentId": "1fddf66a0691f3d5361838903180a743.1.1795036241775",
+          "spanId": 0
+        },
+        "tags": {
+          "data": [
+            {
+              "key": "level",
+              "value": "WARN"
+            },
+            {
+              "key": "run_id",
+              "value": "1fddf66a"
+            }
+          ]
+        },
+        "layer": "GENERAL"
+      },
+      {
+        "timestamp": 1795036241760,
+        "service": "sw-otlp-1fddf66a",
+        "serviceInstance": "inst-1fddf66a",
+        "body": {
+          "text": {
+            "text": "native log with otel trace native-log-1fddf66a-otel"
+          }
+        },
+        "traceContext": {
+          "traceId": "055ffba8ecc69a64950538fda698a308"
+        },
+        "tags": {
+          "data": [
+            {
+              "key": "level",
+              "value": "ERROR"
+            },
+            {
+              "key": "span_id",
+              "value": "999a2365604ef4c8"
+            },
+            {
+              "key": "extra_attr",
+              "value": "not-searchable"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/protobuf"
+    },
+    "body": ""
+  }
+}

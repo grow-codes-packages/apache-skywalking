@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": "not json"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "content-type": "text/plain"
+    },
+    "body": "Failed to parse a JSON document: not json"
+  }
+}

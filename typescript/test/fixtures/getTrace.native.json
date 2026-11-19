@@ -1,0 +1,135 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($id:ID!){queryTrace(traceId:$id){spans{traceId segmentId spanId parentSpanId refs{traceId parentSegmentId parentSpanId type} serviceCode serviceInstanceName startTime endTime endpointName type peer component isError layer tags{key value} logs{time data{key value}}}}}",
+      "variables": {
+        "id": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "queryTrace": {
+          "spans": [
+            {
+              "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775",
+              "segmentId": "1fddf66a0691f3d5361838903180a743.1.1795036241775",
+              "spanId": 0,
+              "parentSpanId": -1,
+              "refs": [],
+              "serviceCode": "sw-native-a-1fddf66a",
+              "serviceInstanceName": "inst-a-1fddf66a",
+              "startTime": 1795036241675,
+              "endTime": 1795036241775,
+              "endpointName": "/native/entry",
+              "type": "Entry",
+              "peer": "",
+              "component": "Tomcat",
+              "isError": false,
+              "layer": "Http",
+              "tags": [
+                {
+                  "key": "http.method",
+                  "value": "GET"
+                },
+                {
+                  "key": "http.status_code",
+                  "value": "200"
+                },
+                {
+                  "key": "run_id",
+                  "value": "1fddf66a"
+                }
+              ],
+              "logs": []
+            },
+            {
+              "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775",
+              "segmentId": "1fddf66a0691f3d5361838903180a743.1.1795036241775",
+              "spanId": 1,
+              "parentSpanId": 0,
+              "refs": [],
+              "serviceCode": "sw-native-a-1fddf66a",
+              "serviceInstanceName": "inst-a-1fddf66a",
+              "startTime": 1795036241695,
+              "endTime": 1795036241755,
+              "endpointName": "/native/downstream",
+              "type": "Exit",
+              "peer": "sw-native-b-1fddf66a:8080",
+              "component": "HttpClient",
+              "isError": false,
+              "layer": "Http",
+              "tags": [
+                {
+                  "key": "http.method",
+                  "value": "GET"
+                },
+                {
+                  "key": "url",
+                  "value": "http://sw-native-b-1fddf66a:8080/native/downstream"
+                }
+              ],
+              "logs": []
+            },
+            {
+              "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775",
+              "segmentId": "1fddf66a70c2344bb33099ba110e3b65.2.1795036241775",
+              "spanId": 0,
+              "parentSpanId": -1,
+              "refs": [
+                {
+                  "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775",
+                  "parentSegmentId": "1fddf66a0691f3d5361838903180a743.1.1795036241775",
+                  "parentSpanId": 1,
+                  "type": "CROSS_PROCESS"
+                }
+              ],
+              "serviceCode": "sw-native-b-1fddf66a",
+              "serviceInstanceName": "inst-b-1fddf66a",
+              "startTime": 1795036241705,
+              "endTime": 1795036241745,
+              "endpointName": "/native/downstream",
+              "type": "Entry",
+              "peer": "",
+              "component": "Tomcat",
+              "isError": true,
+              "layer": "Http",
+              "tags": [
+                {
+                  "key": "http.method",
+                  "value": "GET"
+                },
+                {
+                  "key": "http.status_code",
+                  "value": "500"
+                }
+              ],
+              "logs": [
+                {
+                  "time": 1795036241735,
+                  "data": [
+                    {
+                      "key": "event",
+                      "value": "error"
+                    },
+                    {
+                      "key": "message",
+                      "value": "downstream failed"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}
