@@ -1,0 +1,152 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/v1/traces",
+    "body": {
+      "resourceSpans": [
+        {
+          "resource": {
+            "attributes": [
+              {
+                "key": "service.name",
+                "value": {
+                  "stringValue": "sw-otlp-1fddf66a"
+                }
+              },
+              {
+                "key": "service.version",
+                "value": {
+                  "stringValue": "1.2.3"
+                }
+              },
+              {
+                "key": "deployment.environment",
+                "value": {
+                  "stringValue": "verify"
+                }
+              }
+            ]
+          },
+          "scopeSpans": [
+            {
+              "scope": {
+                "name": "grow-verify",
+                "version": "0.0.1"
+              },
+              "spans": [
+                {
+                  "traceId": "055ffba8ecc69a64950538fda698a308",
+                  "spanId": "e891943fdadfebf9",
+                  "name": "GET /checkout",
+                  "kind": 2,
+                  "startTimeUnixNano": 1795036241725000000,
+                  "endTimeUnixNano": 1795036241775000000,
+                  "attributes": [
+                    {
+                      "key": "http.method",
+                      "value": {
+                        "stringValue": "GET"
+                      }
+                    },
+                    {
+                      "key": "run_id",
+                      "value": {
+                        "stringValue": "1fddf66a"
+                      }
+                    },
+                    {
+                      "key": "retries",
+                      "value": {
+                        "intValue": 2
+                      }
+                    }
+                  ],
+                  "events": [
+                    {
+                      "timeUnixNano": 1795036241735000000,
+                      "name": "cache.miss",
+                      "attributes": [
+                        {
+                          "key": "k",
+                          "value": {
+                            "stringValue": "v"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "status": {
+                    "code": 1
+                  }
+                },
+                {
+                  "traceId": "055ffba8ecc69a64950538fda698a308",
+                  "spanId": "999a2365604ef4c8",
+                  "parentSpanId": "e891943fdadfebf9",
+                  "name": "SELECT orders",
+                  "kind": 3,
+                  "startTimeUnixNano": 1795036241745000000,
+                  "endTimeUnixNano": 1795036241765000000,
+                  "attributes": [
+                    {
+                      "key": "db.system",
+                      "value": {
+                        "stringValue": "postgresql"
+                      }
+                    },
+                    {
+                      "key": "run_id",
+                      "value": {
+                        "stringValue": "1fddf66a"
+                      }
+                    }
+                  ],
+                  "status": {
+                    "code": 2,
+                    "message": "boom"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "resource": {
+            "attributes": [
+              {
+                "key": "service.name",
+                "value": {
+                  "stringValue": "sw-otlp-traceonly-1fddf66a"
+                }
+              }
+            ]
+          },
+          "scopeSpans": [
+            {
+              "scope": {
+                "name": "grow-verify"
+              },
+              "spans": [
+                {
+                  "traceId": "6506c63a70c99467f49f769ee49d3127",
+                  "spanId": "92d4f89b3e19f440",
+                  "name": "lonely",
+                  "kind": 1,
+                  "startTimeUnixNano": 1795036241770000000,
+                  "endTimeUnixNano": 1795036241775000000
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "content-type": "text/plain; charset=utf-8"
+    },
+    "body": "Status: 404\nDescription: Not Found\n"
+  }
+}
