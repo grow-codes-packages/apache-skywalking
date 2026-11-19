@@ -13,7 +13,7 @@ homepage = "https://grow-codes-packages.github.io/apache-skywalking/"
 repository = "https://github.com/grow-codes-packages/apache-skywalking"
 documentation = "https://docs.rs/grow-apache-skywalking"
 readme = "README.md"
-keywords = ["grow-codes", "sdk", "client"]
+keywords = ["grow-codes", "sdk", "skywalking", "tracing", "opentelemetry"]
 categories = ["api-bindings", "asynchronous"]
 include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE", "NOTICE"]
 
@@ -23,8 +23,9 @@ path = "src/lib.rs"
 
 [features]
 default = ["tracing-layer", "log-bridge"]
-# Blocking wrapper (`blocking::SkyWalkingClient`) that owns a current-thread tokio runtime.
-blocking = []
+# Blocking wrapper (`blocking::SkyWalkingClient`) that owns a one-worker multi-thread tokio
+# runtime (background batching keeps running between calls).
+blocking = ["tokio/rt-multi-thread"]
 # In-memory fakes and the conformance runner (`testing` module).
 testing = []
 # `tracing_subscriber::Layer` that forwards tracing events to a `LogClient` (`LogLayer`).
@@ -38,6 +39,7 @@ reqwest-middleware = ["dep:reqwest-middleware"]
 
 [dependencies]
 async-trait = "0.1.80"
+base64 = "0.22"
 bytes = "1.6"
 futures = { version = "0.3.30", default-features = false, features = ["std", "async-await"] }
 httpdate = "1.0"

@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "{hasQueryTracesV2Support supportQueryLogsByKeywords}",
+      "variables": {}
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "hasQueryTracesV2Support": true,
+        "supportQueryLogsByKeywords": false
+      }
+    }
+  }
+}
