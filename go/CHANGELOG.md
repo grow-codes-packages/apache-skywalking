@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/grow-codes-packages/apache-skywalking/compare/go/v0.1.1...go/v0.1.2) (2026-11-19)
+
+
+### Dependencies
+
+* **go:** Bump go.opentelemetry.io/proto/otlp from 1.11.0 to 1.11.1 in /go in the go group across 1 directory ([#8](https://github.com/grow-codes-packages/apache-skywalking/issues/8)) ([be05d1b](https://github.com/grow-codes-packages/apache-skywalking/commit/be05d1b89fbb0cabc05ddbf7749ad77ede5fa2f1))
+
 ## [0.1.1](https://github.com/grow-codes-packages/apache-skywalking/compare/go/v0.1.0...go/v0.1.1) (2026-11-19)
 
 
