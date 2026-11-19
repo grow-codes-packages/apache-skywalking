@@ -217,6 +217,30 @@ def test_close_flushes_owned_log_clients_and_handles() -> None:
     assert "/v3/logs" in oap.paths()
 
 
+def test_calls_after_close_are_cancelled() -> None:
+    oap = Oap()
+    c = oap.client()
+    c.close()
+    with pytest.raises(sdk.CancelledError, match="closed"):
+        c.ping()
+    with pytest.raises(sdk.CancelledError):
+        c.query.list_services()
+    with pytest.raises(sdk.CancelledError):
+        c.traces.list_services()
+    assert oap.paths() == []
+
+
+async def test_async_calls_after_close_are_cancelled() -> None:
+    oap = Oap()
+    c = oap.aclient()
+    await c.aclose()
+    with pytest.raises(sdk.CancelledError, match="closed"):
+        await c.ping()
+    with pytest.raises(sdk.CancelledError):
+        await c.traces.list_services()
+    assert oap.paths() == []
+
+
 def test_close_survives_failing_closer() -> None:
     c = Oap().client()
 

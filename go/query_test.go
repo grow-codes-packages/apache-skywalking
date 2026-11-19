@@ -247,17 +247,11 @@ func TestTopologyAndKeys(t *testing.T) {
 	}
 	_, err = q.Topology(t.Context(), TimeRange{Step: "X"}, TopologyOptions{})
 	mustCode(t, err, ErrorCodeValidation)
-	layers, err := q.ListLayers(t.Context())
-	if err != nil || strings.Join(layers, ",") != "GENERAL,MESH" {
-		t.Fatal(layers, err)
-	}
 	keys, err := q.ListLogTagKeys(t.Context(), TimeRange{})
 	if err != nil || strings.Join(keys, ",") != "level,run_id,span_id,trace_id" {
 		t.Fatal(keys, err)
 	}
-	m.on("listLayers", jsonBody(500, "{}")).on("queryLogTagAutocompleteKeys", jsonBody(500, "{}"))
-	_, err = q.ListLayers(t.Context())
-	mustCode(t, err, ErrorCodeUnavailable)
+	m.on("queryLogTagAutocompleteKeys", jsonBody(500, "{}"))
 	_, err = q.ListLogTagKeys(t.Context(), TimeRange{})
 	mustCode(t, err, ErrorCodeUnavailable)
 	_, err = q.ListLogTagKeys(t.Context(), TimeRange{Step: "X"})

@@ -9,6 +9,7 @@ use std::time::Duration;
 use grow_apache_skywalking as sdk;
 use sdk::core::{EnvReader, ErrorCode};
 use sdk::logging::{BatchOptions, LogClient, LogInput, Severity};
+use sdk::tracing::TraceQueryClient;
 use sdk::{
     base_from_graphql_url, collector_to_url, create_log_client, parse_otlp_headers,
     zipkin_query_url, OtlpProtocol, SkyWalkingClient, SkyWalkingConfig as Config,
@@ -412,6 +413,19 @@ async fn client_log_client_flushes_on_close() {
     c.close().await;
     c.close().await;
     assert!(c.is_closed());
+    assert_eq!(c.ping().await.unwrap_err().code(), ErrorCode::Cancelled);
+    assert_eq!(
+        c.query()
+            .list_services(None, None)
+            .await
+            .unwrap_err()
+            .code(),
+        ErrorCode::Cancelled
+    );
+    assert_eq!(
+        c.traces().list_services().await.unwrap_err().code(),
+        ErrorCode::Cancelled
+    );
     let reqs = server.received_requests().await.unwrap();
     let body: serde_json::Value = serde_json::from_slice(&reqs[0].body).unwrap();
     assert_eq!(body[0]["service"], "svc");

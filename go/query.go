@@ -401,7 +401,7 @@ type QueryLogsOptions struct {
 	// Tags are exact tag matches; OAP only filters keys in SW_SEARCHABLE_LOGS_TAG_KEYS.
 	Tags map[string]string
 	// Keywords / ExcludingKeywords filter content on storages that support it
-	// (Client.Capabilities().LogsByKeywords; ignored on BanyanDB).
+	// (QueryClient.Capabilities().LogsByKeywords; ignored on BanyanDB).
 	Keywords          []string
 	ExcludingKeywords []string
 	// Range is the time window (zero = the last hour, or none when TraceID is set).
@@ -628,26 +628,10 @@ func normalizeTopology(t Topology) Topology {
 	return t
 }
 
-// ListLayers returns the layers OAP knows (GraphQL listLayers), sorted.
-func (q *QueryClient) ListLayers(ctx context.Context) ([]string, error) {
-	var out []string
-	if err := q.c.gql(ctx, "query.listLayers", "{listLayers}", nil, "listLayers", &out); err != nil {
-		return nil, err
-	}
-	sort.Strings(out)
-	return nonNilSlice(out), nil
-}
-
 // ListLogTagKeys returns the searchable log tag keys seen in the range (GraphQL
 // queryLogTagAutocompleteKeys), sorted.
 func (q *QueryClient) ListLogTagKeys(ctx context.Context, r TimeRange) ([]string, error) {
 	return q.tagKeys(ctx, "query.listLogTagKeys", "queryLogTagAutocompleteKeys", r)
-}
-
-// ListTraceTagKeys returns the searchable native trace tag keys seen in the range (GraphQL
-// queryTraceTagAutocompleteKeys), sorted.
-func (q *QueryClient) ListTraceTagKeys(ctx context.Context, r TimeRange) ([]string, error) {
-	return q.tagKeys(ctx, "query.listTraceTagKeys", "queryTraceTagAutocompleteKeys", r)
 }
 
 func (q *QueryClient) tagKeys(ctx context.Context, op, field string, r TimeRange) ([]string, error) {
@@ -661,6 +645,16 @@ func (q *QueryClient) tagKeys(ctx context.Context, op, field string, r TimeRange
 	}
 	sort.Strings(out)
 	return nonNilSlice(out), nil
+}
+
+// TimeInfo returns the OAP time zone and clock (GraphQL getTimeInfo) and caches the
+// time zone used to format query windows.
+func (q *QueryClient) TimeInfo(ctx context.Context) (TimeInfo, error) { return q.c.timeInfo(ctx) }
+
+// Capabilities probes the optional query features of the connected OAP once
+// (hasQueryTracesV2Support, supportQueryLogsByKeywords) and caches the answer.
+func (q *QueryClient) Capabilities(ctx context.Context) (Capabilities, error) {
+	return q.c.capabilities(ctx)
 }
 
 // GraphQL runs a raw GraphQL query. HTTP failures are errors (a query OAP cannot

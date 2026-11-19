@@ -78,15 +78,15 @@ func TestPingVersionCapabilities(t *testing.T) {
 	if err != nil || v != "10.4.0-b272da3" {
 		t.Fatal(v, err)
 	}
-	caps, err := c.Capabilities(t.Context())
+	caps, err := c.Query().Capabilities(t.Context())
 	if err != nil || !caps.QueryTracesV2 || caps.LogsByKeywords {
 		t.Fatal(caps, err)
 	}
-	_, _ = c.Capabilities(t.Context())
+	_, _ = c.Query().Capabilities(t.Context())
 	if m.count("hasQueryTracesV2Support") != 1 {
 		t.Fatal("capabilities not cached")
 	}
-	ti, err := c.TimeInfo(t.Context())
+	ti, err := c.Query().TimeInfo(t.Context())
 	if err != nil || ti.Timezone != "+0000" || ti.CurrentTime.UnixMilli() != 1795036301381 {
 		t.Fatal(ti, err)
 	}
@@ -96,13 +96,13 @@ func TestPingVersionCapabilities(t *testing.T) {
 	mustCode(t, err, ErrorCodeUnsupported)
 
 	m2 := newMockOAP(t).on("hasQueryTracesV2Support", "graphql.validation-error")
-	_, err = m2.client().Capabilities(t.Context())
+	_, err = m2.client().Query().Capabilities(t.Context())
 	mustCode(t, err, ErrorCodeValidation)
 	m2.on("hasQueryTracesV2Support", "queryBasicTraces.unsupported")
-	_, err = m2.client().Capabilities(t.Context())
+	_, err = m2.client().Query().Capabilities(t.Context())
 	mustCode(t, err, ErrorCodeUnsupported)
 	m2.on("hasQueryTracesV2Support", jsonBody(200, `{"data":null}`))
-	_, err = m2.client().Capabilities(t.Context())
+	_, err = m2.client().Query().Capabilities(t.Context())
 	mustCode(t, err, ErrorCodeUnavailable)
 }
 
@@ -196,18 +196,18 @@ func TestGraphQLRaw(t *testing.T) {
 
 func TestTimezoneAndDuration(t *testing.T) {
 	m := newMockOAP(t).on("getTimeInfo", jsonBody(200, `{"data":{"getTimeInfo":{"timezone":"+0530","currentTimestamp":1}}}`)).
-		on("queryTraceTagAutocompleteKeys", "queryTraceTagAutocompleteKeys.ok")
+		on("queryLogTagAutocompleteKeys", "queryLogTagAutocompleteKeys.ok")
 	c := m.client()
 	start := time.Date(2026, 11, 18, 20, 40, 0, 0, time.UTC)
-	keys, err := c.Query().ListTraceTagKeys(t.Context(), TimeRange{Start: start, End: fixedNow})
-	if err != nil || strings.Join(keys, ",") != "http.method,http.status_code,run_id" {
+	keys, err := c.Query().ListLogTagKeys(t.Context(), TimeRange{Start: start, End: fixedNow})
+	if err != nil || strings.Join(keys, ",") != "level,run_id,span_id,trace_id" {
 		t.Fatal(keys, err)
 	}
-	d := m.last("queryTraceTagAutocompleteKeys").GQL.Variables["d"].(map[string]any)
+	d := m.last("queryLogTagAutocompleteKeys").GQL.Variables["d"].(map[string]any)
 	if d["start"] != "2026-11-19 0210" || d["end"] != "2026-11-19 0245" || d["step"] != "MINUTE" {
 		t.Fatal(d)
 	}
-	_, _ = c.Query().ListTraceTagKeys(t.Context(), TimeRange{})
+	_, _ = c.Query().ListLogTagKeys(t.Context(), TimeRange{})
 	if m.count("getTimeInfo") != 1 {
 		t.Fatal("timezone not cached")
 	}
@@ -253,6 +253,10 @@ func TestCloseIdempotent(t *testing.T) {
 		t.Fatal("close")
 	}
 	_, err := c.Ping(t.Context())
+	mustCode(t, err, ErrorCodeCancelled)
+	_, err = c.Query().ListServices(t.Context(), "")
+	mustCode(t, err, ErrorCodeCancelled)
+	_, err = c.Traces().WithBackend(TraceBackendZipkin).ListServices(t.Context())
 	mustCode(t, err, ErrorCodeCancelled)
 }
 

@@ -92,6 +92,16 @@ describe("SkyWalkingClient core", () => {
     await client.close();
   });
 
+  it("calls on a closed client fail with CANCELLED", async () => {
+    const s = await startOap();
+    const client = clientFor(s);
+    await client.close();
+    await expect(client.ping()).rejects.toMatchObject({ code: "CANCELLED" });
+    await expect(client.query.listServices()).rejects.toMatchObject({ code: "CANCELLED" });
+    await expect(client.traces.listServices()).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(s.requests).toHaveLength(0);
+  });
+
   it("health rethrows cancellation", async () => {
     const s = await startOap();
     const client = clientFor(s);
@@ -179,7 +189,7 @@ describe("SkyWalkingClient core", () => {
     });
     expect(logs.stats().sent).toBe(1);
     await handle.shutdown();
-    await expect(client.ping()).rejects.toMatchObject({ code: "CONFIG" });
+    await expect(client.ping()).rejects.toMatchObject({ code: "CANCELLED" });
   });
 
   it("createLogClient owns its connections", async () => {

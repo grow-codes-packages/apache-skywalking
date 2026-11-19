@@ -117,7 +117,13 @@ nav:
   - Quickstart: quickstart.md
   - Configuration: configuration.md
   - Client: client.md
-  - Functions: functions.md
+  - Functions:
+      - functions.md
+      - Client and status: functions/client.md
+      - Query API: functions/query.md
+      - Trace queries: functions/traces.md
+      - Logs: functions/logs.md
+      - Tracing setup and sw8: functions/tracing-setup.md
   - Logging: logging.md
   - Tracing: tracing.md
   - Error handling: errors.md

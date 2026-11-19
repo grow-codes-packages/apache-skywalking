@@ -19,8 +19,7 @@
 //     stores (OTLP spans through the Zipkin query API, native agent traces through
 //     GraphQL); see TraceBackend.
 //   - Logs: Client.NewLogClient sends logs to the native /v3/logs API
-//     (NativeLogExporter) or, with NewOTLPLogExporter, over OTLP gRPC; Client.Logs
-//     implements LogQueryClient.
+//     (NativeLogExporter); Client.Logs implements LogQueryClient.
 //   - Native queries: Client.Query is the GraphQL API (services, endpoints, instances,
 //     native traces, logs, topology, raw GraphQL).
 //

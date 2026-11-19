@@ -110,11 +110,11 @@ func TestSW8Propagator(t *testing.T) {
 	if _, ok := SW8CorrelationFromContext(ctx); ok {
 		t.Fatal("invalid correlation extracted")
 	}
-	// registered by name and part of the defaults, next to W3C
+	// registered by name, used next to W3C
 	if _, ok := lookupPropagator("SW8"); !ok {
 		t.Fatal("sw8 not registered")
 	}
-	comp := buildPropagator(DefaultPropagators)
+	comp := buildPropagator(append(append([]string(nil), DefaultPropagators...), PropagatorSW8))
 	ctx = ContextWithSW8(context.Background(), v.SW8.Decoded)
 	ctx = ContextWithSW8Correlation(ctx, []KeyValue{{Key: "a", Value: "b"}})
 	out = propagation.MapCarrier{}

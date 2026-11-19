@@ -182,7 +182,7 @@ func SW8CorrelationFromContext(ctx context.Context) ([]KeyValue, bool) {
 
 // SW8Propagator is an OpenTelemetry TextMapPropagator for SkyWalking's sw8 and
 // sw8-correlation headers, used next to W3C trace context (TracingConfig.Propagators
-// "sw8"; part of DefaultPropagators).
+// "sw8"; not part of DefaultPropagators, add it explicitly).
 //
 // An OpenTelemetry SDK cannot produce a native sw8 parent from W3C context (sw8 needs
 // a segment id, an integer span id and the endpoint), so the propagator extracts by

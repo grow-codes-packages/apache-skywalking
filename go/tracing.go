@@ -20,9 +20,9 @@ const DefaultOTLPEndpoint = "http://127.0.0.1:11800"
 const AuthenticationHeader = "authentication"
 
 // DefaultPropagators are the propagators InitTracing uses when none are configured:
-// W3C trace context and baggage plus sw8 (extract, inject only with native metadata;
-// see SW8Propagator).
-var DefaultPropagators = []string{PropagatorTraceContext, PropagatorBaggage, PropagatorSW8}
+// W3C trace context and baggage, as in every language. Add PropagatorSW8 ("sw8") to
+// extract SkyWalking agent headers (see SW8Propagator).
+var DefaultPropagators = []string{PropagatorTraceContext, PropagatorBaggage}
 
 // InitTracing starts OpenTelemetry tracing that exports spans to SkyWalking OAP over
 // OTLP gRPC. Unset fields of cfg are filled from the environment
@@ -76,7 +76,7 @@ func NewExporter(ctx context.Context, cfg TracingConfig) (sdktrace.SpanExporter,
 //     ConfigFromEnvWith (OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_*, SW_AGENT_COLLECTOR_BACKEND_SERVICES,
 //     AUTHENTICATION / SW_AUTHENTICATION; default http://<URL host>:11800, grpc).
 //   - ServiceName: OTEL_SERVICE_NAME, else service.name in OTEL_RESOURCE_ATTRIBUTES (the
-//     other entries fill unset ResourceAttributes), else SW_AGENT_NAME.
+//     other entries fill unset ResourceAttributes).
 //   - Sampler / SamplerRatio: OTEL_TRACES_SAMPLER / OTEL_TRACES_SAMPLER_ARG.
 //   - Propagators: OTEL_PROPAGATORS, default DefaultPropagators.
 //
@@ -144,11 +144,6 @@ func tracingFromConfig(explicit TracingConfig, sw Config, env map[string]string)
 	}
 	if v, ok := r.String("", "OTEL_SERVICE_NAME"); ok && explicit.ServiceName == "" {
 		c.ServiceName = strings.TrimSpace(v)
-	}
-	if c.ServiceName == "" {
-		if v, ok := r.String("", "SW_AGENT_NAME"); ok {
-			c.ServiceName = strings.TrimSpace(v)
-		}
 	}
 	if c.Sampler == "" {
 		if v, ok := r.String("", "OTEL_TRACES_SAMPLER"); ok {

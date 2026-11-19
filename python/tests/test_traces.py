@@ -196,9 +196,9 @@ def test_zipkin_errors_are_mapped() -> None:
         return None
 
     with Oap(route).client() as c:
-        with pytest.raises(sdk.ValidationError, match="HTTP 400"):
+        with pytest.raises(sdk.ValidationError, match=r"lower-hex encoded.*HTTP 400"):
             c.traces.get_trace(OTLP_TRACE)
-        with pytest.raises(sdk.UnavailableError):
+        with pytest.raises(sdk.UnavailableError, match="oops"):
             c.traces.list_services()
 
 

@@ -60,7 +60,11 @@ func TestConfigEnvPrecedence(t *testing.T) {
 		}
 	})
 	t.Run("graphql url with custom path", func(t *testing.T) {
-		c, err := ConfigFromEnvWith(Config{}, map[string]string{"GROW_APACHE_SKYWALKING_GRAPHQL_URL": "http://gw:8080/sw/graphql"})
+		c, err := ConfigFromEnvWith(Config{}, map[string]string{"GROW_APACHE_SKYWALKING_GRAPHQL_PATH": "/gql", "SW_GRAPHQL_URL": "http://gw:8080/sw/graphql"})
+		if err != nil || c.URL != "http://gw:8080" || c.GraphQLPath != "/gql" {
+			t.Fatalf("%v %s %s", err, c.URL, c.GraphQLPath)
+		}
+		c, err = ConfigFromEnvWith(Config{}, map[string]string{"GROW_APACHE_SKYWALKING_GRAPHQL_URL": "http://gw:8080/sw/graphql"})
 		if err != nil || c.URL != "http://gw:8080" || c.GraphQLPath != "/sw/graphql" {
 			t.Fatalf("%v %s %s", err, c.URL, c.GraphQLPath)
 		}
@@ -93,6 +97,10 @@ func TestConfigEnvPrecedence(t *testing.T) {
 		}
 		if c.OTLPHeaders["X-A"] != "explicit" || c.OTLPHeaders["x-b"] != "hello world" || len(c.OTLPHeaders) != 2 {
 			t.Fatal(c.OTLPHeaders)
+		}
+		c, err = ConfigFromEnvWith(Config{}, map[string]string{"GROW_APACHE_SKYWALKING_OTLP_HEADERS": "x-g=1", "OTEL_EXPORTER_OTLP_HEADERS": "x-o=2"})
+		if err != nil || c.OTLPHeaders["x-g"] != "1" || len(c.OTLPHeaders) != 1 {
+			t.Fatal(c.OTLPHeaders, err)
 		}
 		delete(env, "OTEL_EXPORTER_OTLP_ENDPOINT")
 		env["SW_ZIPKIN_ADDRESS"] = "http://oap:9412/custom"

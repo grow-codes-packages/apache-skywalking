@@ -14,6 +14,8 @@ import time
 from collections.abc import Callable, Generator, Mapping
 from typing import Any, Literal, TypeVar
 
+import httpx
+
 from ._core import (
     AsyncHttpTransport,
     CancelToken,
@@ -24,6 +26,7 @@ from ._core import (
     UnsupportedError,
     ValidationError,
     error_from_status,
+    parse_retry_after,
     redact_text,
     truncate,
 )
@@ -241,20 +244,33 @@ def zipkin_get(
     *,
     allow_404: bool = False,
 ) -> Op[Response]:
-    """GET on the Zipkin query API (``<zipkin_url><path>``)."""
+    """GET on the Zipkin query API (``<zipkin_url><path>``).
+
+    OAP answers Zipkin errors with ``content-type: text/*``, which the generated transport does
+    not read as vendor text; the error is built here so the server message (for example
+    ``... should be lower-hex encoded with no prefix``) ends up in the SDK error, as in the other
+    languages. Retries (5xx, 429, network) still happen in the transport.
+    """
     resp = yield Call(
         "zipkin",
-        Request(
-            "GET",
-            path,
-            operation=operation,
-            params=params,
-            raise_for_status=not allow_404,
-        ),
+        Request("GET", path, operation=operation, params=params, raise_for_status=False),
     )
-    if allow_404 and resp.status >= 400 and resp.status != 404:
-        raise error_from_status(resp.status, operation, content=resp.content, headers=resp.headers)
+    if resp.status >= 400 and not (allow_404 and resp.status == 404):
+        raise zipkin_error(resp, operation)
     return resp
+
+
+def zipkin_error(resp: Response, operation: str) -> ServiceError:
+    """The SDK error for a Zipkin query API error response (``text/*`` bodies kept)."""
+    headers = httpx.Headers(resp.headers)
+    if headers.get("content-type", "").startswith("text/"):
+        headers["content-type"] = "text/plain; charset=utf-8"
+    retry_after = (
+        parse_retry_after(headers.get("retry-after")) if resp.status in (429, 503) else None
+    )
+    return error_from_status(
+        resp.status, operation, content=resp.content, headers=headers, retry_after=retry_after
+    )
 
 
 def run_sync(

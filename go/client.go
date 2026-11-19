@@ -138,7 +138,7 @@ func (c *Client) graphQLHealth(ctx context.Context) (HealthStatus, error) {
 // (AUTHENTICATION error on HTTP 401). It also caches the OAP time zone.
 func (c *Client) Ping(ctx context.Context) (time.Duration, error) {
 	start := time.Now()
-	if _, err := c.TimeInfo(ctx); err != nil {
+	if _, err := c.timeInfo(ctx); err != nil {
 		return 0, err
 	}
 	return time.Since(start), nil
@@ -171,8 +171,9 @@ type Capabilities struct {
 	LogsByKeywords bool `json:"logsByKeywords"`
 }
 
-// Capabilities probes the optional query features once and caches the answer.
-func (c *Client) Capabilities(ctx context.Context) (Capabilities, error) {
+// capabilities probes the optional query features once and caches the answer
+// (QueryClient.Capabilities).
+func (c *Client) capabilities(ctx context.Context) (Capabilities, error) {
 	c.capsMu.Lock()
 	defer c.capsMu.Unlock()
 	if c.caps != nil {

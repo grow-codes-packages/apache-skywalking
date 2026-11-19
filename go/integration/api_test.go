@@ -152,7 +152,7 @@ func TestAPI(t *testing.T) {
 	}
 	_ = h.Shutdown(ctx)
 
-	// --- emit logs: native exporter (with an OTel trace id) and OTLP exporter
+	// --- emit logs: native exporter (with an OTel trace id)
 	lc, err := client.NewLogClient(skywalking.LogClientOptions{Resource: map[string]skywalking.AttrValue{"service.name": logSvc, "service.instance.id": "inst-" + s.run}})
 	if err != nil {
 		t.Fatal(err)
@@ -163,16 +163,6 @@ func TestAPI(t *testing.T) {
 	if err := lc.Flush(ctx); err != nil {
 		t.Fatal(err)
 	}
-	otlpExp, err := client.NewOTLPLogExporter()
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := otlpExp.Export(ctx, []skywalking.LogRecord{{Timestamp: time.Now(), Severity: skywalking.SeverityInfo, Body: "otlp log " + s.run, TraceID: otlpTrace,
-		Attributes: map[string]skywalking.AttrValue{"run_id": s.run}, Resource: map[string]skywalking.AttrValue{"service.name": logSvc}}}, skywalking.ExportOptions{Gzip: true})
-	if err != nil || res.Accepted != 1 {
-		t.Fatal(res, err)
-	}
-	_ = otlpExp.Shutdown(ctx)
 	native := client.NewLogExporter(skywalking.LogExporterOptions{Service: s.svcA, ServiceInstance: s.instA})
 	if _, err := native.Export(ctx, []skywalking.LogRecord{{Timestamp: time.Now(), Body: "segment log " + s.run, TraceID: s.traceID, SeverityText: "INFO"}}, skywalking.ExportOptions{}); err != nil {
 		t.Fatal(err)
@@ -190,11 +180,11 @@ func TestAPI(t *testing.T) {
 		if err != nil || (os.Getenv("SW_SERVER_VERSION") != "" && v != os.Getenv("SW_SERVER_VERSION")) {
 			t.Fatal(v, err)
 		}
-		ti, err := client.TimeInfo(ctx)
+		ti, err := client.Query().TimeInfo(ctx)
 		if err != nil || ti.Timezone != os.Getenv("SW_SERVER_TIMEZONE") || time.Since(ti.CurrentTime).Abs() > time.Hour {
 			t.Fatal(ti, err)
 		}
-		caps, err := client.Capabilities(ctx)
+		caps, err := client.Query().Capabilities(ctx)
 		if err != nil || !caps.QueryTracesV2 {
 			t.Fatal(caps, err)
 		}
@@ -280,14 +270,6 @@ func TestAPI(t *testing.T) {
 		if ins[0].Name != s.instA {
 			t.Fatal(ins)
 		}
-		layers, err := q.ListLayers(ctx)
-		if err != nil || !slices.Contains(layers, "GENERAL") {
-			t.Fatal(layers, err)
-		}
-		keys, err := q.ListTraceTagKeys(ctx, skywalking.TimeRange{})
-		if err != nil || !slices.Contains(keys, "http.method") {
-			t.Fatal(keys, err)
-		}
 		ops, err := client.Traces().WithBackend(skywalking.TraceBackendNative).ListOperations(ctx, s.svcA)
 		if err != nil || !slices.Contains(ops, "/native/entry") {
 			t.Fatal(ops, err)
@@ -371,23 +353,17 @@ func TestAPI(t *testing.T) {
 		lq := client.Logs()
 		recs := until(t, "search logs", dataTimeout, func(ctx context.Context) ([]skywalking.LogRecord, bool, error) {
 			recs, err := skywalking.SearchAll(ctx, lq, "service="+logSvc+" "+s.run, skywalking.SearchOptions{}, 0)
-			return recs, len(recs) == 3, err
+			return recs, len(recs) == 2, err
 		})
-		var nativeRec, otlpRec skywalking.LogRecord
+		var nativeRec skywalking.LogRecord
 		for _, r := range recs {
-			switch {
-			case strings.HasPrefix(r.Body, "native order"):
+			if strings.HasPrefix(r.Body, "native order") {
 				nativeRec = r
-			case strings.HasPrefix(r.Body, "otlp log"):
-				otlpRec = r
 			}
 		}
 		if nativeRec.TraceID != otlpTrace || nativeRec.SpanID != "00f067aa0ba902b7" || nativeRec.Severity != skywalking.SeverityWarn ||
 			nativeRec.Attributes["run_id"] != s.run || nativeRec.Attributes["password"] != "[REDACTED]" || nativeRec.Resource["service.instance.id"] != "inst-"+s.run {
 			t.Fatalf("%+v", nativeRec)
-		}
-		if otlpRec.Attributes["trace_id"] != otlpTrace || otlpRec.Resource["service.name"] != logSvc {
-			t.Fatalf("OAP drops the OTLP trace id; it must come back as the trace_id attribute: %+v", otlpRec)
 		}
 		byTrace, err := lq.Search(ctx, "trace_id="+otlpTrace, skywalking.SearchOptions{})
 		if err != nil || len(byTrace.Records) != 1 || !strings.HasPrefix(byTrace.Records[0].Body, "native order") {
@@ -402,7 +378,7 @@ func TestAPI(t *testing.T) {
 			t.Fatal(page, err)
 		}
 		page, err = q.QueryLogs(ctx, skywalking.QueryLogsOptions{Service: logSvc, Tags: map[string]string{"run_id": s.run}, Order: skywalking.OrderAsc})
-		if err != nil || len(page.Logs) != 3 || !page.Logs[0].Timestamp.Before(page.Logs[2].Timestamp.Add(time.Millisecond)) {
+		if err != nil || len(page.Logs) != 2 || !page.Logs[0].Timestamp.Before(page.Logs[1].Timestamp.Add(time.Millisecond)) {
 			t.Fatal(page, err)
 		}
 		until(t, "listStreams", metadataTimeout, func(ctx context.Context) ([]string, bool, error) {

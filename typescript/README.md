@@ -10,7 +10,7 @@ npm install @grow-codes/apache-skywalking
 ```ts
 import { SkyWalkingClient } from "@grow-codes/apache-skywalking";
 
-// Reads GROW_APACHE_SKYWALKING_URL, GROW_APACHE_SKYWALKING_TOKEN, timeouts, TLS and proxy settings.
+// Reads GROW_APACHE_SKYWALKING_URL (or SW_GRAPHQL_URL), SW_AUTHENTICATION, timeouts, TLS and proxy settings.
 const client = SkyWalkingClient.fromEnv();
 try {
   console.log(await client.health()); // { healthy: true, status: "ok", details: {} }

@@ -30,7 +30,7 @@ func TestTracingConfigFromEnv(t *testing.T) {
 	env["OTEL_SERVICE_NAME"] = "from-otel"
 	delete(env, "OTEL_PROPAGATORS")
 	c, _ = TracingConfigFromEnvWith(TracingConfig{Headers: map[string]string{"Authentication": "explicit"}}, env)
-	if c.ServiceName != "from-otel" || c.Headers["Authentication"] != "explicit" || len(c.Propagators) != 3 || c.Propagators[2] != PropagatorSW8 || c.ResourceAttributes["team"] != "core" {
+	if c.ServiceName != "from-otel" || c.Headers["Authentication"] != "explicit" || len(c.Propagators) != 2 || c.Propagators[1] != PropagatorBaggage || c.ResourceAttributes["team"] != "core" {
 		t.Fatalf("%s", c)
 	}
 	c, _ = TracingConfigFromEnvWith(TracingConfig{ServiceName: "explicit"}, map[string]string{"SW_AGENT_NAME": "agent", "OTEL_SERVICE_NAME": "otel"})
@@ -38,7 +38,7 @@ func TestTracingConfigFromEnv(t *testing.T) {
 		t.Fatal(c.ServiceName, c.Headers)
 	}
 	c, _ = TracingConfigFromEnvWith(TracingConfig{}, map[string]string{"SW_AGENT_NAME": "agent"})
-	if c.ServiceName != "agent" {
+	if c.ServiceName != "" {
 		t.Fatal(c.ServiceName)
 	}
 	for _, bad := range []map[string]string{
@@ -89,7 +89,7 @@ func TestInitTracingExportsOverGRPC(t *testing.T) {
 	if rs.ScopeSpans[0].Spans[0].Name != "GET /checkout" {
 		t.Fatal(rs)
 	}
-	if strings.Join(h.Config().Propagators, ",") != "tracecontext,baggage,sw8" {
+	if strings.Join(h.Config().Propagators, ",") != "tracecontext,baggage" {
 		t.Fatal(h.Config().Propagators)
 	}
 	if err := h.Shutdown(t.Context()); err != nil {

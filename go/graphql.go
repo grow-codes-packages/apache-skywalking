@@ -203,9 +203,9 @@ type TimeInfo struct {
 	CurrentTime time.Time `json:"currentTime"`
 }
 
-// TimeInfo returns the OAP time zone and clock (GraphQL getTimeInfo) and caches the
-// time zone used to format query windows.
-func (c *Client) TimeInfo(ctx context.Context) (TimeInfo, error) {
+// timeInfo returns the OAP time zone and clock (GraphQL getTimeInfo) and caches the
+// time zone used to format query windows (QueryClient.TimeInfo).
+func (c *Client) timeInfo(ctx context.Context) (TimeInfo, error) {
 	var out struct {
 		Timezone         string `json:"timezone"`
 		CurrentTimestamp int64  `json:"currentTimestamp"`
@@ -230,7 +230,7 @@ func (c *Client) location(ctx context.Context) (*time.Location, error) {
 	if loc != nil {
 		return loc, nil
 	}
-	if _, err := c.TimeInfo(ctx); err != nil {
+	if _, err := c.timeInfo(ctx); err != nil {
 		return nil, err
 	}
 	c.tzMu.Lock()

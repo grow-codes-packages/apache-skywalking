@@ -213,6 +213,8 @@ class SkyWalkingClientTest {
     assertThat(closed).hasValue(1);
     assertThat(c.transport().isClosed()).isTrue();
     assertThatThrownBy(c::ping).isInstanceOf(CancelledException.class);
+    assertThatThrownBy(() -> c.query().listServices(null)).isInstanceOf(CancelledException.class);
+    assertThatThrownBy(() -> c.traces().listServices()).isInstanceOf(CancelledException.class);
   }
 
   @Test

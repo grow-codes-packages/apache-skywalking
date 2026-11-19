@@ -24,15 +24,22 @@ pub fn tracing_config(service_name: impl Into<String>) -> TracingConfig {
 }
 
 /// Merges the SkyWalking defaults under `config`: when `config.endpoint` is unset, the endpoint
-/// and protocol come from `otlp_endpoint` / `otlp_protocol` (an explicit endpoint keeps the
-/// config's protocol); headers = `otlp_headers` plus the `authentication` token, overridden by
-/// the config's own headers; TLS from the SkyWalking config when the config has none.
+/// comes from `otlp_endpoint`; a protocol equal to the [`TracingConfig`] template default
+/// (`http/protobuf`) counts as unset and becomes `otlp_protocol` (default `grpc`, the only OTLP
+/// transport OAP 10.4 serves) — the same rule as TypeScript, Go and Python. Select
+/// `http/protobuf` (an OpenTelemetry Collector in front of OAP) with
+/// [`SkyWalkingConfigBuilder::otlp_protocol`](crate::SkyWalkingConfigBuilder::otlp_protocol) or
+/// `OTEL_EXPORTER_OTLP_PROTOCOL`. Headers = `otlp_headers` plus the `authentication` token,
+/// overridden by the config's own headers; TLS from the SkyWalking config when the config has
+/// none.
 pub fn apply_skywalking_defaults(
     mut config: TracingConfig,
     sw: &SkyWalkingConfig,
 ) -> TracingConfig {
     if config.endpoint.is_none() {
         config.endpoint = Some(sw.otlp_endpoint().to_owned());
+    }
+    if config.protocol == Protocol::HttpProtobuf {
         config.protocol = match sw.otlp_protocol() {
             OtlpProtocol::Grpc => Protocol::Grpc,
             OtlpProtocol::HttpProtobuf => Protocol::HttpProtobuf,

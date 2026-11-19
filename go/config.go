@@ -104,6 +104,8 @@ func ConfigFromEnv() (Config, error) { return ConfigFromEnvWith(Config{}, nil) }
 //
 //   - URL: URL, GRAPHQL_URL (a trailing /graphql is removed), SW_GRAPHQL_URL (same),
 //     SW_OAP_ADDRESS; default http://127.0.0.1:12800.
+//   - GraphQLPath: GRAPHQL_PATH, else the path of a GRAPHQL_URL / SW_GRAPHQL_URL; default
+//     /graphql.
 //   - OTLPEndpoint: OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
 //     OTEL_EXPORTER_OTLP_ENDPOINT, SW_AGENT_COLLECTOR_BACKEND_SERVICES (host:port);
 //     default http://<URL host>:11800.
@@ -124,6 +126,11 @@ func ConfigFromEnvWith(explicit Config, env map[string]string) (Config, error) {
 	}
 	alias := func(name string, vendor []string) []string {
 		return append([]string{shortPrefix + name}, vendor...)
+	}
+	if c.GraphQLPath == "" {
+		if v, ok := r.String("GRAPHQL_PATH"); ok {
+			c.GraphQLPath = strings.TrimSpace(v)
+		}
 	}
 	if c.URL == "" {
 		if v, ok := r.String("URL", shortPrefix+"URL"); ok {
@@ -153,7 +160,7 @@ func ConfigFromEnvWith(explicit Config, env map[string]string) (Config, error) {
 			c.OTLPProtocol = Protocol(strings.ToLower(strings.TrimSpace(v)))
 		}
 	}
-	if raw, variable, ok := r.find("", envOTLPHeaders); ok {
+	if raw, variable, ok := r.find("OTLP_HEADERS", envOTLPHeaders); ok {
 		parsed, err := ParseOTLPHeaders(raw)
 		if err != nil {
 			return Config{}, ConfigError(variable + " is not a valid header list")

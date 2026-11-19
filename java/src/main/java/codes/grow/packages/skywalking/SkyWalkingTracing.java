@@ -83,11 +83,13 @@ public final class SkyWalkingTracing {
 
   /**
    * Fills the open fields of a tracing config from the SkyWalking settings: without an endpoint,
-   * the endpoint <b>and</b> protocol become {@link SkyWalkingConfig#otlpEndpoint()} / {@link
-   * SkyWalkingConfig#otlpProtocol()} (the {@link TracingConfig} protocol default http/protobuf is
-   * then replaced); with an explicit endpoint the configured protocol is kept. OTLP headers and the
-   * {@code authentication} token are added unless already present; the SkyWalking TLS options apply
-   * when the tracing config has none.
+   * the endpoint becomes {@link SkyWalkingConfig#otlpEndpoint()}; a protocol equal to the {@link
+   * TracingConfig} template default (http/protobuf) counts as unset and becomes {@link
+   * SkyWalkingConfig#otlpProtocol()} (default grpc, the only OTLP transport OAP 10.4 serves) — the
+   * same rule as TypeScript, Go and Python. Select http/protobuf (an OpenTelemetry Collector in
+   * front of OAP) with {@link SkyWalkingConfig.Builder#otlpProtocol} or {@code
+   * OTEL_EXPORTER_OTLP_PROTOCOL}. OTLP headers and the {@code authentication} token are added
+   * unless already present; the SkyWalking TLS options apply when the tracing config has none.
    *
    * @param config tracing config
    * @param skywalking SkyWalking settings
@@ -96,7 +98,10 @@ public final class SkyWalkingTracing {
   public static TracingConfig withDefaults(TracingConfig config, SkyWalkingConfig skywalking) {
     TracingConfig.Builder b = config.toBuilder();
     if (config.endpoint().isEmpty()) {
-      b.endpoint(skywalking.otlpEndpoint()).protocol(skywalking.otlpProtocol().toTracingProtocol());
+      b.endpoint(skywalking.otlpEndpoint());
+    }
+    if (config.protocol() == TracingConfig.Protocol.HTTP_PROTOBUF) {
+      b.protocol(skywalking.otlpProtocol().toTracingProtocol());
     }
     Map<String, String> headers = new LinkedHashMap<>(config.headers());
     skywalking.otlpHeaders().forEach((k, v) -> putIfAbsent(headers, k, v));

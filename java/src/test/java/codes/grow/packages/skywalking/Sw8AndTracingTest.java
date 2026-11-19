@@ -130,8 +130,15 @@ class Sw8AndTracingTest {
                 .build(),
             sw);
     assertThat(explicit.endpoint()).contains("http://collector:4318");
-    assertThat(explicit.protocol()).isEqualTo(TracingConfig.Protocol.HTTP_PROTOBUF);
+    // The template default http/protobuf counts as unset: the SkyWalking protocol (grpc) applies.
+    assertThat(explicit.protocol()).isEqualTo(TracingConfig.Protocol.GRPC);
     assertThat(explicit.headers()).containsOnlyKeys("Authentication", "X-Tenant");
+    TracingConfig collector =
+        SkyWalkingTracing.withDefaults(
+            TracingConfig.builder("svc").endpoint("http://collector:4318").build(),
+            SkyWalkingConfig.builder().otlpProtocol(OtlpProtocol.HTTP_PROTOBUF).build());
+    assertThat(collector.protocol()).isEqualTo(TracingConfig.Protocol.HTTP_PROTOBUF);
+    assertThat(collector.endpoint()).contains("http://collector:4318");
     TracingConfig plain =
         SkyWalkingTracing.withDefaults(
             TracingConfig.builder("svc").build(), SkyWalkingConfig.builder().build());

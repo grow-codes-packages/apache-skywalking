@@ -400,6 +400,21 @@ async fn tracing_setup_helpers() {
     );
     assert_eq!(explicit.endpoint.as_deref(), Some("http://collector:4318"));
     assert_eq!(explicit.protocol, Protocol::HttpProtobuf);
+    // The template default http/protobuf counts as unset: the SkyWalking protocol (grpc) applies,
+    // also with an explicit endpoint; an explicit grpc is kept.
+    let default_protocol = apply_skywalking_defaults(
+        TracingConfig::new("svc").with_endpoint("http://oap:11800"),
+        &sw,
+    );
+    assert_eq!(default_protocol.protocol, Protocol::Grpc);
+    let kept = apply_skywalking_defaults(
+        TracingConfig::new("svc").with_protocol(Protocol::Grpc),
+        &SkyWalkingConfig::builder()
+            .otlp_protocol(OtlpProtocol::HttpProtobuf)
+            .build()
+            .unwrap(),
+    );
+    assert_eq!(kept.protocol, Protocol::Grpc);
     let http = apply_skywalking_defaults(
         TracingConfig::new("svc"),
         &SkyWalkingConfig::builder()
