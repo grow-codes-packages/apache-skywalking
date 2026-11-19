@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/grow-codes-packages/apache-skywalking/compare/rust-v0.1.0...rust-v0.1.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* sync apache-skywalking to sdk-kit 0.3.0 (GRO-1383) ([#13](https://github.com/grow-codes-packages/apache-skywalking/issues/13)) ([9d56ce0](https://github.com/grow-codes-packages/apache-skywalking/commit/9d56ce0d114a1ec3862248508cde19bf11122b4e))
+
 ## 0.1.0 (2026-11-19)
 
 
