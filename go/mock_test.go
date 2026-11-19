@@ -178,21 +178,6 @@ func (m *mockOAP) client(mutate ...func(*Config)) *Client {
 	return c
 }
 
-// newTestClient is used by the generated TLS tests.
-func newTestClient(t *testing.T, url string, mutate func(*Config)) *Client {
-	t.Helper()
-	cfg := Config{CommonConfig: CommonConfig{URL: url, Retry: fastRetry(3)}}
-	if mutate != nil {
-		mutate(&cfg)
-	}
-	c, err := NewClient(cfg)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
-	return c
-}
-
 // jsonBody writes a JSON response.
 func jsonBody(status int, body string) func(recorded, http.ResponseWriter) {
 	return func(_ recorded, w http.ResponseWriter) {

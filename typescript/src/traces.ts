@@ -1,13 +1,7 @@
 // Service-owned: SkyWalkingTraceQueryClient — the SPEC §5 TraceQueryClient over OAP's two trace
 // stores (Zipkin model for OTLP spans, native model for SkyWalking agents).
 
-import {
-  NotFoundError,
-  UnsupportedError,
-  ValidationError,
-  pollUntil,
-  type PollOptions,
-} from "./core/index.js";
+import { UnsupportedError, ValidationError } from "./core/index.js";
 import type { CallOptions, SkyWalkingApi } from "./api.js";
 import type { TraceBackend } from "./config.js";
 import { nativeTraceToTrace, topologyToDependencies } from "./native.js";
@@ -259,19 +253,9 @@ export class SkyWalkingTraceQueryClient extends BaseTraceQueryClient {
    * Native ids are used verbatim; hex ids are normalized.
    */
   override waitForTrace(traceId: string, opts: WaitForTraceOptions = {}): Promise<Trace> {
-    if (isHexTraceId(traceId)) return waitForHexTrace(this, traceId, opts);
-    const minSpans = opts.minSpans ?? 1;
-    const pollOpts: PollOptions = {
-      timeoutMs: opts.timeoutMs ?? 30_000,
-      intervalMs: opts.intervalMs ?? 1000,
-      operation: `tracing.waitForTrace ${traceId}`,
-      ignoreError: (error) => error instanceof NotFoundError,
-    };
-    if (opts.signal !== undefined) pollOpts.signal = opts.signal;
-    return pollUntil(
-      () => this.getTrace(traceId),
-      (t) => t !== null && t.spans.length >= minSpans,
-      pollOpts,
-    ) as Promise<Trace>;
+    if (isHexTraceId(traceId) || opts.normalizeId !== undefined) {
+      return waitForHexTrace(this, traceId, opts);
+    }
+    return waitForHexTrace(this, traceId, { ...opts, normalizeId: (id) => id });
   }
 }

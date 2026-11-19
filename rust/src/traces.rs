@@ -11,13 +11,13 @@ use async_trait::async_trait;
 
 use crate::api::Api;
 use crate::config::TraceBackend;
-use crate::core::{poll_until, Error, PollOptions, Result};
+use crate::core::{Error, Result};
 use crate::duration::{epoch_ms, from_epoch_ms, TimeRange, DEFAULT_RANGE};
 use crate::native::{native_trace_to_trace, topology_to_dependencies};
 use crate::query::{Paging, QueryTracesOptions, SkyWalkingQueryClient, TopologyOptions};
 use crate::tracing::{
-    wait_for_trace, DependencyLink, DependencyOptions, Trace, TraceQueryClient, TraceSearchQuery,
-    TraceSummary, WaitForTraceOptions,
+    normalize_trace_id_or_native, wait_for_trace_with, DependencyLink, DependencyOptions, Trace,
+    TraceQueryClient, TraceSearchQuery, TraceSummary, WaitForTraceOptions,
 };
 use crate::zipkin::{
     is_hex_trace_id, strings_from_body, summarize, zipkin_spans_from_body, zipkin_trace_id,
@@ -317,19 +317,10 @@ impl TraceQueryClient for SkyWalkingTraceQueryClient {
     /// Polls `get_trace` until the trace has `min_spans` spans (`TIMEOUT` otherwise). Native
     /// ids are used verbatim; hex ids are normalized.
     async fn wait_for_trace(&self, trace_id: &str, opts: WaitForTraceOptions) -> Result<Trace> {
-        if is_hex_trace_id(trace_id) {
-            return wait_for_trace(self, trace_id, opts).await;
-        }
-        let poll = PollOptions {
-            timeout: opts.timeout,
+        let opts = WaitForTraceOptions {
             interval: opts.interval.max(Duration::from_millis(1)),
+            ..opts
         };
-        poll_until(&format!("traces.waitForTrace {trace_id}"), poll, || async {
-            Ok(self
-                .get_trace(trace_id)
-                .await?
-                .filter(|t| t.spans.len() >= opts.min_spans))
-        })
-        .await
+        wait_for_trace_with(self, trace_id, opts, normalize_trace_id_or_native).await
     }
 }
