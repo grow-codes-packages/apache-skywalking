@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://apache-skywalking:9412/zipkin/api/v2/spans?serviceName=sw-otlp-1fddf66a"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": [
+      "get /checkout",
+      "gzip-span",
+      "select orders"
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "{checkHealth{score details}}",
+      "variables": {}
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "checkHealth": {
+          "score": 0,
+          "details": ""
+        }
+      }
+    }
+  }
+}

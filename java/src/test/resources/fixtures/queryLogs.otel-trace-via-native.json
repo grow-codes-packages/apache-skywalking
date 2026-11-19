@@ -1,0 +1,59 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($c:LogQueryCondition){queryLogs(condition:$c){errorReason logs{serviceName serviceId serviceInstanceName endpointName traceId timestamp contentType content tags{key value}}}}",
+      "variables": {
+        "c": {
+          "relatedTrace": {
+            "traceId": "055ffba8ecc69a64950538fda698a308"
+          },
+          "paging": {
+            "pageNum": 1,
+            "pageSize": 20
+          }
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "queryLogs": {
+          "errorReason": null,
+          "logs": [
+            {
+              "serviceName": "sw-otlp-1fddf66a",
+              "serviceId": "c3ctb3RscC0xZmRkZjY2YQ==.1",
+              "serviceInstanceName": "inst-1fddf66a",
+              "endpointName": null,
+              "traceId": "055ffba8ecc69a64950538fda698a308",
+              "timestamp": 1795036241760,
+              "contentType": "TEXT",
+              "content": "native log with otel trace native-log-1fddf66a-otel",
+              "tags": [
+                {
+                  "key": "level",
+                  "value": "ERROR"
+                },
+                {
+                  "key": "span_id",
+                  "value": "999a2365604ef4c8"
+                },
+                {
+                  "key": "extra_attr",
+                  "value": "not-searchable"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

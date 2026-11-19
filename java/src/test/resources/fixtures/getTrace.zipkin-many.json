@@ -1,0 +1,70 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://apache-skywalking:9412/zipkin/api/v2/traceMany?traceIds=055ffba8ecc69a64950538fda698a308,0000000000000000000000000000beef"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": [
+      [
+        {
+          "traceId": "055ffba8ecc69a64950538fda698a308",
+          "id": "e891943fdadfebf9",
+          "kind": "SERVER",
+          "name": "get /checkout",
+          "timestamp": 1795036241725000,
+          "duration": 50000,
+          "localEndpoint": {
+            "serviceName": "sw-otlp-1fddf66a"
+          },
+          "annotations": [
+            {
+              "timestamp": 1795036241735000,
+              "value": "cache.miss|{\"k\":\"v\"}|0"
+            }
+          ],
+          "tags": {
+            "deployment.environment": "verify",
+            "http.method": "GET",
+            "otel.library.name": "grow-verify",
+            "otel.library.version": "0.0.1",
+            "otel.status_code": "STATUS_CODE_OK",
+            "retries": "2",
+            "run_id": "1fddf66a",
+            "service.name": "sw-otlp-1fddf66a",
+            "service.version": "1.2.3",
+            "w3c.tracestate": ""
+          }
+        },
+        {
+          "traceId": "055ffba8ecc69a64950538fda698a308",
+          "parentId": "e891943fdadfebf9",
+          "id": "999a2365604ef4c8",
+          "kind": "CLIENT",
+          "name": "select orders",
+          "timestamp": 1795036241745000,
+          "duration": 20000,
+          "localEndpoint": {
+            "serviceName": "sw-otlp-1fddf66a"
+          },
+          "tags": {
+            "db.system": "postgresql",
+            "deployment.environment": "verify",
+            "error": "true",
+            "otel.library.name": "grow-verify",
+            "otel.library.version": "0.0.1",
+            "otel.status_code": "STATUS_CODE_ERROR",
+            "otel.status_description": "boom",
+            "run_id": "1fddf66a",
+            "service.name": "sw-otlp-1fddf66a",
+            "service.version": "1.2.3",
+            "w3c.tracestate": ""
+          }
+        }
+      ]
+    ]
+  }
+}
