@@ -149,7 +149,9 @@ class TraceQueryClientTest {
   @Test
   void zipkinBadRequestBecomesAValidationError() {
     server.enqueue(400, "id should be lower-hex encoded with no prefix", "Content-Type", "text/*");
-    assertThatThrownBy(() -> client.traces().listServices())
+    // Zipkin backend only: in auto mode listServices also queries GraphQL concurrently, and the
+    // single queued 400 could go to either request.
+    assertThatThrownBy(() -> client.traces().withBackend(TraceBackend.ZIPKIN).listServices())
         .isInstanceOf(ValidationException.class)
         .hasMessageContaining("lower-hex")
         .hasMessageContaining("HTTP 400");
