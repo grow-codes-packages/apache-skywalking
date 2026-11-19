@@ -12,9 +12,8 @@ from __future__ import annotations
 import dataclasses
 import json
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, ClassVar
 
-from ._core import ValidationError
 from ._tracing import (
     DependencyLink,
     Span,
@@ -24,7 +23,6 @@ from ._tracing import (
     SpanStatus,
     StatusCodeName,
     Trace,
-    sort_spans,
 )
 
 __all__ = [
@@ -58,7 +56,6 @@ NATIVE_SPAN_FIELDS = (
 )
 
 _KINDS: dict[str, SpanKindName] = {"Entry": "server", "Exit": "client", "Local": "internal"}
-_SPAN_KINDS = frozenset(("internal", "server", "client", "producer", "consumer", "unspecified"))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -159,30 +156,23 @@ class Topology:
 class NativeIdSpanLink(SpanLink):
     """A :class:`SpanLink` whose ids are native SkyWalking ids (kept verbatim)."""
 
-    def __post_init__(self) -> None:
-        pass
+    normalize_ids: ClassVar[bool] = False
 
 
 @dataclasses.dataclass(frozen=True)
 class NativeIdSpan(Span):
     """A :class:`Span` whose ids are native SkyWalking ids (kept verbatim, not hex)."""
 
-    def __post_init__(self) -> None:
-        if self.kind not in _SPAN_KINDS:
-            raise ValidationError("invalid span kind")
-        if self.duration_micros < 0:
-            object.__setattr__(self, "duration_micros", max(0, self.end_micros - self.start_micros))
-        object.__setattr__(self, "parent_span_id", self.parent_span_id or None)
-        object.__setattr__(self, "events", tuple(self.events))
-        object.__setattr__(self, "links", tuple(self.links))
+    normalize_ids: ClassVar[bool] = False
+    link_class: ClassVar[type[SpanLink]] = NativeIdSpanLink
 
 
 @dataclasses.dataclass(frozen=True)
 class NativeIdTrace(Trace):
     """A :class:`Trace` whose id is a native SkyWalking trace id (kept verbatim)."""
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "spans", tuple(sort_spans(self.spans)))
+    normalize_ids: ClassVar[bool] = False
+    span_class: ClassVar[type[Span]] = NativeIdSpan
 
 
 # --------------------------------------------------------------------------- decoding

@@ -137,29 +137,12 @@ func (t *Traces) zipkinGet(ctx context.Context, op, path string, q url.Values, o
 
 // WaitForTrace polls GetTrace until the trace has at least MinSpans spans (test
 // helper). Unlike the package-level WaitForTrace it accepts native trace ids (used
-// verbatim); hex ids are normalized.
+// verbatim, NormalizeID KeepTraceID); hex ids are normalized.
 func (t *Traces) WaitForTrace(ctx context.Context, traceID string, opts WaitForTraceOptions) (*Trace, error) {
-	if IsOTelTraceID(traceID) {
-		return WaitForTrace(ctx, t, traceID, opts)
+	if opts.NormalizeID == nil && !IsOTelTraceID(traceID) {
+		opts.NormalizeID = KeepTraceID
 	}
-	if err := required("traces.waitForTrace", "traceId", traceID); err != nil {
-		return nil, err
-	}
-	minSpans := max(opts.MinSpans, 1)
-	timeout, interval := opts.Timeout, opts.Interval
-	if timeout <= 0 {
-		timeout = DefaultWaitTraceTimeout
-	}
-	if interval <= 0 {
-		interval = DefaultWaitTraceInterval
-	}
-	return PollUntil(ctx, "traces.waitForTrace", timeout, interval, func(ctx context.Context) (*Trace, bool, error) {
-		tr, err := t.GetTrace(ctx, traceID)
-		if err != nil {
-			return nil, false, err
-		}
-		return tr, tr != nil && len(tr.Spans) >= minSpans, nil
-	})
+	return WaitForTrace(ctx, t, traceID, opts)
 }
 
 // SearchTraces searches traces and summarises them. zipkin and auto: GET

@@ -364,7 +364,8 @@ describe("HttpTransport errors", () => {
     const s = await serve([{ status: 404, body: { message: "nope" } }]);
     const res = await transport(s.url).get("/x", { allowStatus: [404] });
     expect(res.status).toBe(404);
-    expect(res.data).toBeUndefined();
+    expect(res.data).toEqual({ message: "nope" });
+    expect(res.text).toContain("nope");
   });
 
   it("invalid JSON in a success response is a non-retryable UNAVAILABLE", async () => {
