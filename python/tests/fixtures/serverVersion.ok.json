@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "{version}",
+      "variables": {}
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "version": "10.4.0-b272da3"
+      }
+    }
+  }
+}

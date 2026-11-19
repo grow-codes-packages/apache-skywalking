@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:11800/opentelemetry.proto.collector.trace.v1.TraceService/Export",
+    "body": "<OTLP protobuf, see verify/gen_payloads.py>"
+  },
+  "protocol": "grpc",
+  "response": {
+    "status": 7,
+    "headers": {
+      "content-type": "application/grpc",
+      "grpc-status": "7"
+    },
+    "body": ""
+  }
+}

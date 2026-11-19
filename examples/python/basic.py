@@ -6,7 +6,7 @@ import grow_apache_skywalking as sdk
 
 
 def main() -> None:
-    # Reads GROW_APACHE_SKYWALKING_URL, GROW_APACHE_SKYWALKING_TOKEN, timeouts … from the environment.
+    # Reads GROW_APACHE_SKYWALKING_URL (or SW_GRAPHQL_URL), timeouts … from the environment.
     with sdk.SkyWalkingClient.from_env() as client:
         status = client.health()
         print(f"healthy={status.healthy} status={status.status}")

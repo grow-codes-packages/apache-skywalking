@@ -1,0 +1,95 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($c:LogQueryCondition){queryLogs(condition:$c){errorReason logs{content timestamp tags{key value}}}}",
+      "variables": {
+        "c": {
+          "queryDuration": {
+            "start": "2026-11-18 2040",
+            "end": "2026-11-18 2115",
+            "step": "MINUTE"
+          },
+          "paging": {
+            "pageNum": 1,
+            "pageSize": 1000
+          }
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "queryLogs": {
+          "errorReason": null,
+          "logs": [
+            {
+              "content": "order created native-log-1fddf66a",
+              "timestamp": 1795036241725,
+              "tags": [
+                {
+                  "key": "level",
+                  "value": "WARN"
+                },
+                {
+                  "key": "run_id",
+                  "value": "1fddf66a"
+                }
+              ]
+            },
+            {
+              "content": "payment accepted otlp-log-1fddf66a",
+              "timestamp": 1795036241755,
+              "tags": [
+                {
+                  "key": "trace_id",
+                  "value": "055ffba8ecc69a64950538fda698a308"
+                },
+                {
+                  "key": "run_id",
+                  "value": "1fddf66a"
+                },
+                {
+                  "key": "level",
+                  "value": "INFO"
+                },
+                {
+                  "key": "span_id",
+                  "value": "999a2365604ef4c8"
+                },
+                {
+                  "key": "extra_attr",
+                  "value": "not-searchable"
+                }
+              ]
+            },
+            {
+              "content": "native log with otel trace native-log-1fddf66a-otel",
+              "timestamp": 1795036241760,
+              "tags": [
+                {
+                  "key": "level",
+                  "value": "ERROR"
+                },
+                {
+                  "key": "span_id",
+                  "value": "999a2365604ef4c8"
+                },
+                {
+                  "key": "extra_attr",
+                  "value": "not-searchable"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

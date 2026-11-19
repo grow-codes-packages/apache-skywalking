@@ -1,278 +1,298 @@
-"""Skeleton client (sync + async), health, close and polling helpers."""
+"""SkyWalkingClient / AsyncSkyWalkingClient: health, ping, version, raw GraphQL, owned resources."""
 
 from __future__ import annotations
 
 import asyncio
-import time
+import json
 from typing import Any
 
+import httpx
 import pytest
 
 import grow_apache_skywalking as sdk
-from _support import MockServer, Reply, closed_port_url, make_config, spawn_capturing
-
-TOKEN = "client-token-789"
-
-
-def client(url: str, **kw: Any) -> sdk.SkyWalkingClient:
-    return sdk.SkyWalkingClient(make_config(url, **kw))
+from _oap import NOW_MS, URL, Oap, data, gql, reply
+from _support import spawn_capturing
 
 
-def aclient(url: str, **kw: Any) -> sdk.AsyncSkyWalkingClient:
-    return sdk.AsyncSkyWalkingClient(make_config(url, **kw))
+def route_path(path: str, response: httpx.Response) -> Any:
+    return lambda r: response if r.url.path == path else None
 
 
-# --------------------------------------------------------------------------- sync
+def route_query(needle: str, response: httpx.Response) -> Any:
+    def route(r: httpx.Request) -> httpx.Response | None:
+        if r.url.path == "/graphql" and needle in gql(r)["query"]:
+            return response
+        return None
+
+    return route
 
 
-def test_health_ping_version(server: MockServer) -> None:
-    server.enqueue("/health", Reply(200, {"status": "ok", "build": 7, "nested": {"x": 1}}))
-    server.enqueue("/version", Reply(200, {"version": "1.2.3"}))
-    with client(server.url, token=TOKEN) as c:
-        health = c.health()
-        assert health == sdk.HealthStatus(True, "ok", {"build": "7"})
-        latency = c.ping()
-        assert isinstance(latency, float) and latency >= 0
-        assert c.server_version() == "1.2.3"
-        assert "client-token" not in repr(c)
-    ping = next(s for s in server.seen if s.path == "/v1/ping")
-    assert ping.headers["Authorization"] == f"Bearer {TOKEN}"
-    health_req = next(s for s in server.seen if s.path == "/health")
-    assert "Authorization" not in health_req.headers
+# --------------------------------------------------------------------------- health
 
 
-def test_health_variants(server: MockServer) -> None:
-    c = client(server.url)
-    server.enqueue("/health", Reply(503, {"status": "degraded"}))
-    assert c.health() == sdk.HealthStatus(False, "degraded", {"httpStatus": "503"})
-    server.enqueue("/health", Reply(500, "boom"))
-    assert c.health() == sdk.HealthStatus(False, "unhealthy", {"httpStatus": "500"})
-    server.enqueue("/health", Reply(200, "OK"))
-    assert c.health() == sdk.HealthStatus(True, "ok", {})
-    server.enqueue("/health", Reply(200, [1, 2]))
-    assert c.health().healthy
-    assert len([s for s in server.seen if s.path == "/health"]) == 4  # health never retries
+def test_health_ok() -> None:
+    oap = Oap()
+    with oap.client() as c:
+        assert c.health() == sdk.HealthStatus(True, "ok", {})
+    assert oap.paths() == ["/healthcheck"]
 
 
-def test_core_health_unreachable() -> None:
-    """core.health.unreachable"""
-    c = client(closed_port_url())
-    status = c.health()
-    assert status.healthy is False
-    assert status.status == "unreachable"
-    assert "error" in status.details
+def test_health_503_is_unhealthy_without_retry() -> None:
+    oap = Oap(route_path("/healthcheck", httpx.Response(503, text="down")))
+    with oap.client() as c:
+        assert c.health() == sdk.HealthStatus(False, "unhealthy", {"httpStatus": "503"})
+    assert oap.paths() == ["/healthcheck"]
 
 
-def test_health_timeout_is_unreachable(server: MockServer) -> None:
-    server.enqueue("/health", Reply(200, delay=1.0))
-    c = client(server.url, request_timeout=0.1)
-    assert c.health().status == "unreachable"
+def test_health_falls_back_to_graphql_check() -> None:
+    oap = Oap(route_path("/healthcheck", httpx.Response(404, text="nope")))
+    with oap.client() as c:
+        assert c.health().healthy
+    assert oap.paths() == ["/healthcheck", "/graphql"]
+    unhealthy = Oap(
+        route_path("/healthcheck", httpx.Response(404)),
+        route_query("checkHealth", data({"checkHealth": {"score": 2, "details": "storage"}})),
+    )
+    with unhealthy.client() as c:
+        assert c.health() == sdk.HealthStatus(
+            False, "unhealthy", {"score": "2", "details": "storage"}
+        )
+    odd = Oap(
+        route_path("/healthcheck", httpx.Response(404)),
+        route_query("checkHealth", data({"checkHealth": None})),
+    )
+    with odd.client() as c:
+        assert c.health() == sdk.HealthStatus(False, "unhealthy", {"score": "-1"})
 
 
-def test_health_raises_only_cancelled_and_config(server: MockServer) -> None:
-    c = client(server.url)
-    c.close()
-    with pytest.raises(sdk.CancelledError):
-        c.health()
+def test_health_errors_never_raise() -> None:
+    teapot = Oap(route_path("/healthcheck", httpx.Response(418, text="teapot")))
+    with teapot.client() as c:
+        status = c.health()
+    assert status.status == "unhealthy" and not status.healthy
+    broken = Oap(route_path("/healthcheck", httpx.Response(500, text="boom")))
+    with broken.client() as c:
+        assert c.health().status == "unreachable"
+
+    def fail(r: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    with Oap(fail).client() as c:
+        status = c.health()
+    assert status.status == "unreachable" and "error" in status.details
+    gql_fail = Oap(
+        route_path("/healthcheck", httpx.Response(404)),
+        route_query("checkHealth", reply("graphql.validation-error")),
+    )
+    with gql_fail.client() as c:
+        assert c.health().status == "unhealthy"
+
+
+def test_health_cancelled_raises() -> None:
     token = sdk.CancelToken()
     token.cancel()
+    with Oap().client() as c, pytest.raises(sdk.CancelledError):
+        c.health(cancel=token)
+
+
+# --------------------------------------------------------------------------- ping, version, graphql
+
+
+def test_ping_version_graphql() -> None:
+    oap = Oap()
+    with oap.client() as c:
+        assert c.ping() >= 0
+        assert c.server_version() == "10.4.0-b272da3"
+        res = c.graphql("{version}")
+        assert res.data == {"version": "10.4.0-b272da3"} and res.errors == ()
+        assert c.query.graphql("query{version}", {}).data == {"version": "10.4.0-b272da3"}
+    sent = json.loads(oap.requests[1].content)
+    assert sent == {"query": "{version}", "variables": {}}
+    assert oap.requests[1].headers["content-type"] == "application/json"
+    assert oap.requests[1].headers["user-agent"].startswith("grow-codes-apache-skywalking/")
+
+
+def test_server_version_missing_is_unsupported() -> None:
+    oap = Oap(route_query("{version}", data({"version": ""})))
+    with oap.client() as c, pytest.raises(sdk.UnsupportedError):
+        c.server_version()
+
+
+def test_graphql_errors() -> None:
+    oap = Oap(
+        route_query("nope", reply("graphql.validation-error")),
+        route_query("bad", reply("graphql.bad-json")),
+        route_query("fetch", reply("graphql.fetch-error")),
+        route_query("basic", reply("queryBasicTraces.unsupported")),
+        route_query("text", httpx.Response(200, text="not json")),
+        route_query("list", httpx.Response(200, json=[1, 2])),
+    )
+    with oap.client() as c:
+        with pytest.raises(sdk.ValidationError) as info:
+            c.graphql("{nope}")
+        assert info.value.http_status == 400
+        assert "FieldUndefined" in str(info.value)
+        with pytest.raises(sdk.ValidationError):
+            c.graphql("{bad}")
+        with pytest.raises(sdk.ValidationError):
+            c.graphql("   ")
+        res = c.graphql("{fetch}")
+        assert res.data == {"getGlobalTopology": None}
+        assert res.errors[0].path == ("getGlobalTopology",)
+        assert res.errors[0].classification == "DataFetchingException"
+        err = sdk.graphql_error("op", res.errors)
+        assert isinstance(err, sdk.ValidationError) and str(err).startswith("op: Exception")
+        basic = c.graphql("{basic}")
+        assert isinstance(sdk.graphql_error("op", basic.errors), sdk.UnsupportedError)
+        with pytest.raises(sdk.ValidationError):
+            c.graphql("{text}")
+        assert c.graphql("{list}") == sdk.GraphQLResponse(None, ())
+
+
+def test_graphql_error_helpers() -> None:
+    assert sdk.graphql_errors(None) == ()
+    assert sdk.graphql_errors({"errors": [1, {"message": 2, "extensions": []}]}) == (
+        sdk.GraphQLErrorInfo(""),
+    )
+    long = sdk.GraphQLErrorInfo("x secret-value-123 " + "y" * 400)
+    err = sdk.graphql_error("op", [sdk.GraphQLErrorInfo(""), long], ["secret-value-123"])
+    assert "secret-value-123" not in str(err) and len(err.message) <= 310
+    assert str(sdk.graphql_error("op", [])) == "op: GraphQL error"
+
+
+def test_mutations_are_not_retried() -> None:
+    calls: list[int] = []
+
+    def flaky(r: httpx.Request) -> httpx.Response | None:
+        if r.url.path == "/graphql":
+            calls.append(1)
+            return httpx.Response(503, text="busy")
+        return None
+
+    with Oap(flaky).client() as c:
+        with pytest.raises(sdk.UnavailableError):
+            c.graphql("mutation { x }")
+        assert len(calls) == 1
+        with pytest.raises(sdk.UnavailableError):
+            c.graphql("{ x }")
+        assert len(calls) == 3
+
+
+def test_request_and_resources_and_repr() -> None:
+    oap = Oap()
+    c = oap.client(authentication="tok-secret-1")
+    assert c.request(sdk.Request("GET", "/healthcheck")).text == "200 OK"
+    assert isinstance(c.resources, sdk.ResourceRegistry)
+    assert "tok-secret-1" not in repr(c) and "SkyWalkingClient(" in repr(c)
+    assert isinstance(c.query, sdk.SkyWalkingQueryClient)
+    assert isinstance(c.traces, sdk.TraceQueryClient)
+    assert isinstance(c.logs, sdk.LogQueryClient)
+    c.close()
+    c.close()
     with pytest.raises(sdk.CancelledError):
-        client(server.url).health(cancel=token)
-    bad = sdk.SkyWalkingClient.__new__(sdk.SkyWalkingClient)
-    bad.config = sdk.SkyWalkingConfig(url="ftp://svc")
-    bad._transport = sdk.HttpTransport(bad.config)
-    with pytest.raises(sdk.ConfigError):
-        bad.health()
+        c.ping()
 
 
-def test_ping_bad_credentials(server: MockServer) -> None:
-    server.enqueue("/v1/ping", Reply(401, {"error": "unauthorized"}))
-    with pytest.raises(sdk.AuthenticationError):
-        client(server.url).ping()
-
-
-def test_server_version_errors(server: MockServer) -> None:
-    c = client(server.url)
-    server.enqueue("/version", Reply(404))
-    with pytest.raises(sdk.UnsupportedError) as info:
-        c.server_version()
-    assert info.value.http_status == 404
-    server.enqueue("/version", Reply(200, {"nope": 1}))
-    with pytest.raises(sdk.ValidationError):
-        c.server_version()
-    server.enqueue("/version", Reply(403))
-    with pytest.raises(sdk.PermissionDeniedError):
-        c.server_version()
-
-
-def test_core_close_idempotent(server: MockServer) -> None:
-    """core.close.idempotent"""
-    c = client(server.url)
-    stopped: list[int] = []
-
-    class Res:
-        def stop(self) -> None:
-            stopped.append(1)
-
-    c.resources.register(Res())
+def test_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    c = sdk.SkyWalkingClient.from_env({"SW_GRAPHQL_URL": "http://oap:12800/graphql"})
+    assert c.config.url == URL
+    assert c.config.zipkin_url == "http://oap:9412/zipkin"
     c.close()
-    c.close()
-    assert stopped == [1]
-    c.resources.register(Res())  # registering after close stops immediately
-    assert stopped == [1, 1]
-
-
-def test_from_env_and_raw_request(server: MockServer, monkeypatch: pytest.MonkeyPatch) -> None:
-    env = {sdk.ENV_PREFIX + "URL": server.url, sdk.ENV_PREFIX + "TOKEN": TOKEN}
-    with sdk.SkyWalkingClient.from_env(env) as c:
-        assert c.config.url == server.url
-        resp = c.request(sdk.Request("GET", "/anything"))
-        assert resp.status == 200
-    monkeypatch.setenv(sdk.ENV_PREFIX + "URL", server.url)
-    with sdk.SkyWalkingClient() as c2:
-        assert c2.config.url == server.url
+    monkeypatch.setenv("GROW_APACHE_SKYWALKING_URL", "http://env-oap:12800")
+    with sdk.SkyWalkingClient() as d:
+        assert d.config.url == "http://env-oap:12800"
     with pytest.raises(sdk.ConfigError):
-        sdk.SkyWalkingClient.from_env({sdk.ENV_PREFIX + "URL": "nope://x"})
+        sdk.SkyWalkingClient(sdk.SkyWalkingConfig(url="nope"))
+
+
+def test_close_flushes_owned_log_clients_and_handles() -> None:
+    oap = Oap()
+    c = oap.client()
+    logs = c.log_client(service_name="svc", options=sdk.BatchOptions(flush_interval_s=60))
+    handle = c.init_tracing(service_name="svc", set_global=False)
+    logs.send(sdk.LogInput("hello"))
+    c.close()
+    assert handle.is_shut_down
+    assert logs.stats().sent == 1
+    assert "/v3/logs" in oap.paths()
+
+
+def test_close_survives_failing_closer() -> None:
+    c = Oap().client()
+
+    def boom() -> None:
+        raise RuntimeError("x")
+
+    c._own(boom)
+    c.close()
 
 
 # --------------------------------------------------------------------------- async
 
 
-async def test_async_client(server: MockServer, monkeypatch: pytest.MonkeyPatch) -> None:
-    server.enqueue("/health", Reply(200, {"status": "ok"}))
-    server.enqueue("/version", Reply(200, {"version": "9.9.9"}))
-    async with aclient(server.url, token=TOKEN) as c:
+async def test_async_client_core() -> None:
+    oap = Oap()
+    async with oap.aclient() as c:
         assert (await c.health()).healthy
         assert await c.ping() >= 0
-        assert await c.server_version() == "9.9.9"
-        assert (await c.request(sdk.Request("GET", "/raw"))).status == 200
-        assert "client-token" not in repr(c)
-        assert c.resources is not None
-    await c.close()
-    with pytest.raises(sdk.CancelledError):
-        await c.health()
-    env = {sdk.ENV_PREFIX + "URL": server.url}
-    c2 = sdk.AsyncSkyWalkingClient.from_env(env)
-    server.enqueue("/version", Reply(501))
-    with pytest.raises(sdk.UnsupportedError):
-        await c2.server_version()
-    server.enqueue("/version", Reply(404))
-    with pytest.raises(sdk.UnsupportedError):
-        await c2.server_version()
-    await c2.aclose()
-    monkeypatch.setenv(sdk.ENV_PREFIX + "URL", server.url)
-    c3 = sdk.AsyncSkyWalkingClient()
-    assert c3.config.url == server.url
-    await c3.aclose()
-
-
-async def test_async_health_unreachable() -> None:
-    """core.health.unreachable (async)"""
-    c = aclient(closed_port_url())
-    status = await c.health()
-    assert (status.healthy, status.status) == (False, "unreachable")
+        assert await c.server_version() == "10.4.0-b272da3"
+        assert (await c.graphql("{version}")).data == {"version": "10.4.0-b272da3"}
+        assert (await c.request(sdk.Request("GET", "/healthcheck"))).status == 200
+        assert isinstance(c.resources, sdk.ResourceRegistry)
+        assert isinstance(c.query, sdk.AsyncSkyWalkingQueryClient)
+        assert isinstance(c.traces, sdk.AsyncTraceQueryClient)
+        assert isinstance(c.logs, sdk.AsyncLogQueryClient)
+        assert "AsyncSkyWalkingClient(" in repr(c)
     await c.aclose()
+    c2 = sdk.AsyncSkyWalkingClient.from_env({"GROW_APACHE_SKYWALKING_URL": URL})
+    await c2.close()
 
 
-async def test_async_health_cancel(server: MockServer) -> None:
-    server.enqueue("/health", Reply(200, delay=2.0))
-    c = aclient(server.url)
-    errors: list[BaseException] = []
-    task = spawn_capturing(c.health(), errors)
-    await asyncio.sleep(0.1)
+async def test_async_health_variants() -> None:
+    oap = Oap(route_path("/healthcheck", httpx.Response(503)))
+    async with oap.aclient() as c:
+        assert (await c.health()).status == "unhealthy"
+
+
+async def test_async_owned_resources() -> None:
+    oap = Oap()
+    c = oap.aclient()
+    logs = c.log_client(service_name="svc", options=sdk.BatchOptions(flush_interval_s=60))
+    handle = c.init_tracing(service_name="svc", set_global=False)
+    logs.send(sdk.LogInput("hello async"))
+
+    def boom() -> None:
+        raise RuntimeError("x")
+
+    c._owned.append(boom)
+    await c.aclose()
+    assert handle.is_shut_down
+    assert logs.stats().sent == 1
+    assert "/v3/logs" in oap.paths()
+
+
+async def test_async_cancellation() -> None:
+    gate = asyncio.Event()
+
+    async def slow_handler(request: httpx.Request) -> httpx.Response:
+        await gate.wait()
+        return httpx.Response(200, json={"data": {}})
+
+    c = sdk.AsyncSkyWalkingClient(
+        sdk.SkyWalkingConfig(url=URL), http_transport=httpx.MockTransport(slow_handler)
+    )
+    seen: list[BaseException] = []
+    task = spawn_capturing(c.ping(), seen)
+    await asyncio.sleep(0.05)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert isinstance(errors[0], sdk.CancelledError)
+    assert isinstance(seen[0], sdk.CancelledError)
     await c.aclose()
 
 
-# --------------------------------------------------------------------------- polling
-
-
-def test_poll_until() -> None:
-    values = iter([None, [], [1]])
-    assert sdk.poll_until(lambda: next(values), interval_s=0.001) == [1]
-    attempts = iter([0, 1, 2, 3])
-    assert sdk.poll_until(lambda: next(attempts), predicate=lambda v: v >= 2, interval_s=0) == 2
-    errors = iter([sdk.UnavailableError("flaky"), "ok"])
-
-    def flaky() -> str:
-        item = next(errors)
-        if isinstance(item, Exception):
-            raise item
-        return item
-
-    assert sdk.poll_until(flaky, interval_s=0) == "ok"
-    with pytest.raises(sdk.NotFoundError):
-        sdk.poll_until(lambda: (_ for _ in ()).throw(sdk.NotFoundError("gone")))
-    started = time.monotonic()
-    with pytest.raises(sdk.TimeoutError, match=r"wait\.thing") as info:
-        sdk.poll_until(
-            lambda: (_ for _ in ()).throw(sdk.UnavailableError("down")),
-            timeout_s=0.05,
-            interval_s=0.01,
-            operation="wait.thing",
-        )
-    assert isinstance(info.value.cause, sdk.UnavailableError)
-    assert time.monotonic() - started < 1.0
-    with pytest.raises(sdk.TimeoutError):
-        sdk.poll_until(lambda: None, timeout_s=0.02, interval_s=0.005)
-
-
-async def test_apoll_until() -> None:
-    values = iter([None, "", "done"])
-
-    async def fetch() -> str | None:
-        return next(values)
-
-    assert await sdk.apoll_until(fetch, interval_s=0.001) == "done"
-
-    async def failing() -> str:
-        raise sdk.UnavailableError("down")
-
-    with pytest.raises(sdk.TimeoutError):
-        await sdk.apoll_until(failing, timeout_s=0.03, interval_s=0.01)
-
-    async def fatal() -> str:
-        raise sdk.AuthenticationError("no")
-
-    with pytest.raises(sdk.AuthenticationError):
-        await sdk.apoll_until(fatal)
-
-    async def numbers() -> int:
-        return 5
-
-    assert await sdk.apoll_until(numbers, predicate=lambda n: n == 5) == 5
-
-
-def test_resource_registry() -> None:
-    reg = sdk.ResourceRegistry()
-    calls: list[str] = []
-
-    class Good:
-        def stop(self) -> None:
-            calls.append("good")
-
-    class Bad:
-        def stop(self) -> None:
-            raise RuntimeError("ignored")
-
-    good, bad = Good(), Bad()
-    reg.register(bad)
-    reg.register(good)
-    reg.unregister(good)
-    reg.unregister(good)
-    reg.register(good)
-    assert isinstance(good, sdk.Stoppable)
-    assert not reg.closed
-    reg.stop_all()
-    reg.stop_all()
-    assert reg.closed and calls == ["good"]
-    reg.register(bad)  # stopped immediately, error ignored
-
-
-def test_get_logger_is_silent() -> None:
-    logger = sdk.get_logger()
-    assert logger.name == sdk.LOGGER_NAME == "grow_apache_skywalking"
-    assert any(type(h).__name__ == "NullHandler" for h in logger.handlers)
+def test_default_clock_is_used() -> None:
+    oap = Oap()
+    c = sdk.SkyWalkingClient(sdk.SkyWalkingConfig(url=URL), http_transport=oap.transport)
+    assert abs(c._state.now() - NOW_MS) < 10 * 365 * 86_400_000
+    c.close()

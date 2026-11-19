@@ -360,16 +360,24 @@ def test_context_resolve_and_close() -> None:
 
 
 def demo_server(server: MockServer) -> None:
-    server.defaults["/health"] = Reply(200, {"status": "ok"})
-    server.defaults["/v1/ping"] = Reply(200, {"pong": True})
-    server.defaults["/version"] = Reply(200, {"version": "1.0.0"})
+    """A minimal OAP: /healthcheck plus GraphQL getTimeInfo and version in one answer."""
+    server.defaults["/healthcheck"] = Reply(200, "200 OK")
+    server.defaults["/graphql"] = Reply(
+        200,
+        {
+            "data": {
+                "getTimeInfo": {"timezone": "+0000", "currentTimestamp": 1795035121034},
+                "version": "10.4.0-b272da3",
+            }
+        },
+    )
 
 
 @pytest.mark.parametrize("scenario_doc", r.pytest_params(categories=["core"]))
 def test_core_scenarios_sync(server: MockServer, scenario_doc: dict[str, Any]) -> None:
     demo_server(server)
     runner = r.ConformanceRunner(
-        {"core": lambda c: sdk.SkyWalkingClient(make_config(server.url, token="t-1234"))},
+        {"core": lambda c: sdk.SkyWalkingClient(make_config(server.url, authentication="t-1234"))},
         capabilities={"version"},
     )
     result = r.assert_scenario(runner, scenario_doc)

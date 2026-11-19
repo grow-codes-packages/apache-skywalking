@@ -10,10 +10,25 @@ pip install grow-apache-skywalking
 ```python
 from grow_apache_skywalking import SkyWalkingClient, SkyWalkingConfig
 
-# Reads GROW_APACHE_SKYWALKING_URL, GROW_APACHE_SKYWALKING_TOKEN, ... from the environment.
+# Reads GROW_APACHE_SKYWALKING_URL (or SW_GRAPHQL_URL / SW_OAP_ADDRESS), ... from the environment.
 with SkyWalkingClient.from_env() as client:
     print(client.health())
     print(client.server_version())
+
+    # OpenTelemetry tracing exported over OTLP/gRPC to the OAP receiver (port 11800)
+    handle = client.init_tracing(service_name="checkout")
+    with handle.tracer("checkout").start_as_current_span("GET /checkout"):
+        pass
+    handle.force_flush()
+
+    # Native logs (POST /v3/logs), queryable a few seconds later
+    logs = client.log_client(service_name="checkout")
+    logs.logger().info("order created")
+    logs.flush()
+
+    print(client.traces.list_services())          # SPEC TraceQueryClient (Zipkin + native stores)
+    print(client.logs.search("service=checkout order"))  # SPEC LogQueryClient
+    print(client.query.list_services("GENERAL"))  # SkyWalking GraphQL query API
 ```
 
 The async client has the same methods:

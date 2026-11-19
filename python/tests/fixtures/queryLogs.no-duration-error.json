@@ -1,0 +1,43 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($c:LogQueryCondition){queryLogs(condition:$c){errorReason logs{content}}}",
+      "variables": {
+        "c": {
+          "paging": {
+            "pageNum": 1,
+            "pageSize": 20
+          }
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "errors": [
+        {
+          "message": "Exception while fetching data (/queryLogs) : org.apache.skywalking.oap.server.core.UnexpectedException: The condition must contains either queryDuration or relatedTrace.",
+          "locations": [
+            {
+              "line": 1,
+              "column": 29
+            }
+          ],
+          "path": ["queryLogs"],
+          "extensions": {
+            "classification": "DataFetchingException"
+          }
+        }
+      ],
+      "data": {
+        "queryLogs": null
+      }
+    }
+  }
+}
