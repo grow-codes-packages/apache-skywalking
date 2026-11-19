@@ -1,0 +1,54 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($c:LogQueryConditionByName){queryLogsByName(condition:$c){errorReason logs{serviceName content tags{key value}}}}",
+      "variables": {
+        "c": {
+          "service": {
+            "serviceName": "sw-native-a-1fddf66a"
+          },
+          "queryDuration": {
+            "start": "2026-11-18 2040",
+            "end": "2026-11-18 2115",
+            "step": "MINUTE"
+          },
+          "paging": {
+            "pageNum": 1,
+            "pageSize": 20
+          }
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "queryLogsByName": {
+          "errorReason": null,
+          "logs": [
+            {
+              "serviceName": "sw-native-a-1fddf66a",
+              "content": "order created native-log-1fddf66a",
+              "tags": [
+                {
+                  "key": "level",
+                  "value": "WARN"
+                },
+                {
+                  "key": "run_id",
+                  "value": "1fddf66a"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

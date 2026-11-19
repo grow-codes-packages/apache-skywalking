@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($s:ID!,$d:Duration!){listInstances(serviceId:$s,duration:$d){id name language instanceUUID attributes{name value}}}",
+      "variables": {
+        "s": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1",
+        "d": {
+          "start": "2026-11-18 2040",
+          "end": "2026-11-18 2115",
+          "step": "MINUTE"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "listInstances": [
+          {
+            "id": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1_aW5zdC1hLTFmZGRmNjZh",
+            "name": "inst-a-1fddf66a",
+            "language": "GO",
+            "instanceUUID": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1_aW5zdC1hLTFmZGRmNjZh",
+            "attributes": [
+              {
+                "name": "ipv4s",
+                "value": ""
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

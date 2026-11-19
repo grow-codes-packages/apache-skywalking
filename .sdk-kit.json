@@ -238,7 +238,7 @@
     },
     {
       "path": "docker/compose.yml",
-      "sha256": "89f576aa15d973f92b7c8d4651cc755a0a9833dc4c66a8c359a88415866ae711",
+      "sha256": "e624e8e5e4b583e14c8882a299db6b14a34fcb6f0e049a098191d90c2410d63f",
       "generated": true
     },
     {
@@ -1473,7 +1473,7 @@
     },
     {
       "path": "java/src/test/java/codes/grow/packages/skywalking/tracing/TracingSetupTest.java",
-      "sha256": "3f9bd5ad417fd2418e215ec1e5faeedd996897af48d1cae38e8b0ca8b6e2fcc8",
+      "sha256": "00da5fd7ccdc87a8a9199cb4d495d04684dd9462b108e91d94868039ee8e36ab",
       "generated": true
     },
     {

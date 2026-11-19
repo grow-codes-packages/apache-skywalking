@@ -6,7 +6,9 @@
 
 One API for **Apache SkyWalking** in five languages: TypeScript, Rust, Go, Python and Java. Every package
 has the same functions, options, defaults, error codes and behaviour, tested against a real
-`apache/skywalking-oap-server + apache/skywalking-ui:10.4.0 + BanyanDB` in Docker.
+`apache/skywalking-oap-server:10.4.0` with BanyanDB 0.10.3 in Docker. OAP needs
+`SW_RECEIVER_ZIPKIN` + `SW_QUERY_ZIPKIN=default` for OTLP spans to be readable; see
+[Compatibility](compatibility.md).
 
 | Language | Package | Coverage |
 | - | - | - |
@@ -18,19 +20,25 @@ has the same functions, options, defaults, error codes and behaviour, tested aga
 
 ## What you get
 
-- **Client** with health, authenticated ping and server version ([Client](client.md)).
-- **Configuration** from code or `GROW_APACHE_SKYWALKING_*` / vendor environment variables, immutable
-  and validated ([Configuration](configuration.md)).
+- **Client** for one OAP server: health, ping, server version, raw GraphQL
+  ([Client and status](functions/client.md)).
+- **Query API** over GraphQL: services, endpoints, instances, native traces, logs and topology
+  ([Query API](functions/query.md)).
+- **Trace queries** (`TraceQueryClient`) over both OAP trace stores: OTLP spans through the Zipkin
+  query API and SkyWalking agent traces through GraphQL, native ids kept verbatim
+  ([Trace queries](functions/traces.md)).
+- **Tracing**: OpenTelemetry setup exporting OTLP/gRPC to OAP (port 11800), span helpers, framework
+  adapters and an `sw8` propagator next to W3C ([Tracing setup and sw8](functions/tracing-setup.md),
+  [Tracing](tracing.md)).
+- **Logging**: batching log client to OAP's native `/v3/logs` API, correlated with the active trace,
+  and log search with client-side free-text matching ([Logs](functions/logs.md),
+  [Logging](logging.md)).
+- **Configuration** from code or `GROW_APACHE_SKYWALKING_*`, `SW_*` and `OTEL_EXPORTER_OTLP_*`
+  variables, immutable and validated ([Configuration](configuration.md)).
 - **Retries** with full-jitter backoff and `Retry-After`, connect/request/total timeouts and
-  cancellation in every language.
-- **Typed errors** with one set of codes across languages ([Error handling](errors.md)).
-- **Redaction everywhere**: credentials never appear in errors, logs, hooks or `toString`
-  ([Redaction](redaction.md)).
-- **Logging**: batching log client, logger facade, redaction processor, framework adapters and
-  log search ([Logging](logging.md)).
-- **Tracing**: OpenTelemetry setup, span helpers, propagation, framework adapters and trace
-  queries ([Tracing](tracing.md)).
-- **Service functions** for the Apache SkyWalking API ([Functions](functions.md)).
+  cancellation in every language; **typed errors** with one set of codes ([Error handling](errors.md)).
+- **Redaction everywhere**: the OAP token and gateway headers never appear in errors, logs, hooks or
+  `toString` ([Redaction](redaction.md)).
 
 Start with [Install](install.md) and the [Quickstart](quickstart.md).
 

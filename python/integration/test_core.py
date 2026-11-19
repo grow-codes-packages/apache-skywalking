@@ -1,4 +1,4 @@
-"""Core round trips against the real service plus the core conformance scenarios."""
+"""Core round trips against the real OAP plus the core conformance scenarios."""
 
 from __future__ import annotations
 
@@ -13,26 +13,26 @@ from grow_apache_skywalking.testing import ConformanceRunner, assert_scenario, p
 
 
 def test_health(client: sdk.SkyWalkingClient) -> None:
-    status = client.health()
-    assert status.healthy, status
+    assert client.health() == sdk.HealthStatus(True, "ok", {})
 
 
 def test_ping(client: sdk.SkyWalkingClient) -> None:
     assert client.ping() >= 0
 
 
-def test_server_version(client: sdk.SkyWalkingClient) -> None:
-    if "version" not in CORE_CAPABILITIES:
-        with pytest.raises(sdk.UnsupportedError):
-            client.server_version()
-        return
-    assert client.server_version()
+def test_server_version(client: sdk.SkyWalkingClient, env: dict[str, str]) -> None:
+    version = client.server_version()
+    assert version.startswith("10.4.")
+    if env.get("SW_SERVER_VERSION"):
+        assert version == env["SW_SERVER_VERSION"]
 
 
 def test_close_is_idempotent(env: dict[str, str]) -> None:
     c = core_client(env)
     c.close()
     c.close()
+    with pytest.raises(sdk.CancelledError):
+        c.ping()
 
 
 def test_async_client(env: dict[str, str]) -> None:
@@ -40,15 +40,16 @@ def test_async_client(env: dict[str, str]) -> None:
         async with async_core_client(env) as c:
             assert (await c.health()).healthy
             assert await c.ping() >= 0
+            assert (await c.server_version()).startswith("10.4.")
 
     asyncio.run(run())
 
 
-def test_bad_token_is_rejected(env: dict[str, str]) -> None:
-    with core_client({**env, "GROW_APACHE_SKYWALKING_TOKEN": "definitely-wrong-token"}) as c:
-        with pytest.raises(sdk.AuthenticationError) as info:
+def test_unreachable_service_is_reported(env: dict[str, str]) -> None:
+    with core_client({**env, "GROW_APACHE_SKYWALKING_URL": "http://127.0.0.1:1"}) as c:
+        assert c.health().status == "unreachable"
+        with pytest.raises(sdk.UnavailableError):
             c.ping()
-        assert "definitely-wrong-token" not in str(info.value)
 
 
 @pytest.mark.parametrize("scenario", pytest_params(categories=["core"]))

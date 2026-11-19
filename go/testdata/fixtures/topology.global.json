@@ -1,0 +1,86 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($d:Duration!){getGlobalTopology(duration:$d){nodes{id name type isReal layers} calls{id source target detectPoints sourceComponents targetComponents}}}",
+      "variables": {
+        "d": {
+          "start": "2026-11-18 2040",
+          "end": "2026-11-18 2115",
+          "step": "MINUTE"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "getGlobalTopology": {
+          "nodes": [
+            {
+              "id": "VXNlcg==.0",
+              "name": "User",
+              "type": "USER",
+              "isReal": false,
+              "layers": [
+                "UNDEFINED"
+              ]
+            },
+            {
+              "id": "c3ctbmF0aXZlLWItMWZkZGY2NmE=.1",
+              "name": "sw-native-b-1fddf66a",
+              "type": "Tomcat",
+              "isReal": true,
+              "layers": [
+                "GENERAL"
+              ]
+            },
+            {
+              "id": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1",
+              "name": "sw-native-a-1fddf66a",
+              "type": "Tomcat",
+              "isReal": true,
+              "layers": [
+                "GENERAL"
+              ]
+            }
+          ],
+          "calls": [
+            {
+              "id": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1-c3ctbmF0aXZlLWItMWZkZGY2NmE=.1",
+              "source": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1",
+              "target": "c3ctbmF0aXZlLWItMWZkZGY2NmE=.1",
+              "detectPoints": [
+                "CLIENT",
+                "SERVER"
+              ],
+              "sourceComponents": [
+                "HttpClient"
+              ],
+              "targetComponents": [
+                "Tomcat"
+              ]
+            },
+            {
+              "id": "VXNlcg==.0-c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1",
+              "source": "VXNlcg==.0",
+              "target": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1",
+              "detectPoints": [
+                "SERVER"
+              ],
+              "sourceComponents": [],
+              "targetComponents": [
+                "Tomcat"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://apache-skywalking:12800/graphql"
+  },
+  "response": {
+    "status": 405,
+    "headers": {
+      "content-type": "text/plain; charset=utf-8"
+    },
+    "body": "Status: 405\nDescription: Method Not Allowed\n"
+  }
+}

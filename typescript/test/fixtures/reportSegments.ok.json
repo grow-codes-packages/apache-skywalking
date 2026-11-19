@@ -1,0 +1,128 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/v3/segments",
+    "body": [
+      {
+        "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775",
+        "traceSegmentId": "1fddf66a0691f3d5361838903180a743.1.1795036241775",
+        "service": "sw-native-a-1fddf66a",
+        "serviceInstance": "inst-a-1fddf66a",
+        "spans": [
+          {
+            "spanId": 1,
+            "parentSpanId": 0,
+            "startTime": 1795036241695,
+            "endTime": 1795036241755,
+            "operationName": "/native/downstream",
+            "peer": "sw-native-b-1fddf66a:8080",
+            "spanType": "Exit",
+            "spanLayer": "Http",
+            "componentId": 2,
+            "isError": false,
+            "tags": [
+              {
+                "key": "http.method",
+                "value": "GET"
+              },
+              {
+                "key": "url",
+                "value": "http://sw-native-b-1fddf66a:8080/native/downstream"
+              }
+            ]
+          },
+          {
+            "spanId": 0,
+            "parentSpanId": -1,
+            "startTime": 1795036241675,
+            "endTime": 1795036241775,
+            "operationName": "/native/entry",
+            "peer": "",
+            "spanType": "Entry",
+            "spanLayer": "Http",
+            "componentId": 1,
+            "isError": false,
+            "tags": [
+              {
+                "key": "http.method",
+                "value": "GET"
+              },
+              {
+                "key": "http.status_code",
+                "value": "200"
+              },
+              {
+                "key": "run_id",
+                "value": "1fddf66a"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775",
+        "traceSegmentId": "1fddf66a70c2344bb33099ba110e3b65.2.1795036241775",
+        "service": "sw-native-b-1fddf66a",
+        "serviceInstance": "inst-b-1fddf66a",
+        "spans": [
+          {
+            "spanId": 0,
+            "parentSpanId": -1,
+            "startTime": 1795036241705,
+            "endTime": 1795036241745,
+            "operationName": "/native/downstream",
+            "peer": "",
+            "spanType": "Entry",
+            "spanLayer": "Http",
+            "componentId": 1,
+            "isError": true,
+            "refs": [
+              {
+                "refType": "CrossProcess",
+                "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775",
+                "parentTraceSegmentId": "1fddf66a0691f3d5361838903180a743.1.1795036241775",
+                "parentSpanId": 1,
+                "parentService": "sw-native-a-1fddf66a",
+                "parentServiceInstance": "inst-a-1fddf66a",
+                "parentEndpoint": "/native/entry",
+                "networkAddressUsedAtPeer": "sw-native-b-1fddf66a:8080"
+              }
+            ],
+            "tags": [
+              {
+                "key": "http.method",
+                "value": "GET"
+              },
+              {
+                "key": "http.status_code",
+                "value": "500"
+              }
+            ],
+            "logs": [
+              {
+                "time": 1795036241735,
+                "data": [
+                  {
+                    "key": "event",
+                    "value": "error"
+                  },
+                  {
+                    "key": "message",
+                    "value": "downstream failed"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/protobuf"
+    },
+    "body": ""
+  }
+}

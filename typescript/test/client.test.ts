@@ -1,202 +1,84 @@
-import { inspect } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  ConfigError,
   PACKAGE_KEY,
-  REDACTED,
-  RetryPolicy,
-  Secret,
-  VENDOR_ENV,
+  Severity,
   SkyWalkingClient,
   SkyWalkingConfig,
   SkyWalkingError,
+  createLogClient,
 } from "../src/index.js";
-import { type MockServer, closedPort, startServer } from "./helpers/server.js";
+import { closedPort } from "./helpers/server.js";
+import {
+  clientFor,
+  closeOaps,
+  data,
+  fast,
+  graphqlCalls,
+  gql,
+  reply,
+  startOap,
+} from "./oap-mock.js";
 
-const servers: MockServer[] = [];
-afterEach(async () => {
-  await Promise.all(servers.splice(0).map((s) => s.close()));
-});
+afterEach(closeOaps);
 
-async function demoServer(token = "t0ken-value"): Promise<MockServer> {
-  const s = await startServer((req) => {
-    if (req.url === "/health") return { status: 200, body: { status: "ok", version: "1.2.3" } };
-    if (req.url === "/version") return { status: 200, body: { version: "1.2.3" } };
-    if (req.url === "/v1/ping") {
-      return req.headers.authorization === `Bearer ${token}`
-        ? { status: 200, body: { pong: true } }
-        : { status: 401, body: { message: "bad token" } };
-    }
-    return { status: 404 };
-  });
-  servers.push(s);
-  return s;
-}
-
-const fast = { retry: { maxRetries: 1, initialBackoffMs: 1 } };
-
-describe("SkyWalkingConfig", () => {
-  it("uses defaults and freezes", () => {
-    const c = new SkyWalkingConfig();
-    expect(c.url).toBe(SkyWalkingConfig.DEFAULT_URL);
-    expect(c.requestTimeoutMs).toBe(30_000);
-    expect(c.retry).toBeInstanceOf(RetryPolicy);
-    expect(c.token).toBeUndefined();
-    expect(Object.isFrozen(c)).toBe(true);
-    expect(SkyWalkingConfig.from(c)).toBe(c);
-    expect(SkyWalkingConfig.from().url).toBe(c.url);
-    const prefix = `GROW_${PACKAGE_KEY.toUpperCase().replaceAll("-", "_")}_`;
-    expect(SkyWalkingConfig.ENV_PREFIX).toBe(prefix);
-  });
-
-  it("keeps optional settings", () => {
-    const hooks = {};
-    const logger = { debug() {}, info() {}, warn() {}, error() {} };
-    const c = new SkyWalkingConfig({
-      proxy: "http://p:1",
-      userAgentSuffix: "s",
-      hooks,
-      logger,
-      token: new Secret("abcd"),
-    });
-    expect(c.proxy).toBe("http://p:1");
-    expect(c.userAgentSuffix).toBe("s");
-    expect(c.hooks).toBe(hooks);
-    expect(c.logger).toBe(logger);
-    expect(c.knownSecrets()).toEqual(["abcd"]);
-  });
-
-  it("validate() raises ConfigError", () => {
-    expect(() => new SkyWalkingConfig({ url: "ftp://x" })).toThrow(ConfigError);
-    expect(() => new SkyWalkingConfig({ token: "   " })).toThrow(ConfigError);
-  });
-
-  it("core.redaction.config: toString/JSON/inspect hide credentials", () => {
-    const c = new SkyWalkingConfig({
-      token: "super-secret-tok",
-      headers: { "x-api-key": "hdr-secret" },
-    });
-    for (const form of [String(c), JSON.stringify(c), inspect(c), `${c.token}`]) {
-      expect(form).not.toContain("super-secret-tok");
-      expect(form).not.toContain("hdr-secret");
-    }
-    expect(String(c)).toContain(REDACTED);
-    expect(String(c)).toMatch(/Config\(/);
-    expect(new SkyWalkingConfig().toJSON().token).toBeNull();
-  });
-
-  it("core.config.env-precedence: explicit > GROW_* > vendor > default", () => {
-    const prefix = SkyWalkingConfig.ENV_PREFIX;
-    const vendor = VENDOR_ENV as { url: string[]; token: string[] };
-    const saved = { url: vendor.url, token: vendor.token };
-    vendor.url = ["VENDOR_ADDR"];
-    vendor.token = ["VENDOR_TOKEN"];
-    try {
-      const env = {
-        [`${prefix}URL`]: "http://grow:1",
-        VENDOR_ADDR: "http://vendor:2",
-        VENDOR_TOKEN: "vendor-token",
-        [`${prefix}REQUEST_TIMEOUT`]: "5s",
-        [`${prefix}MAX_RETRIES`]: "7",
-      };
-      const fromEnv = SkyWalkingConfig.fromEnv({}, env);
-      expect(fromEnv.url).toBe("http://grow:1");
-      expect(fromEnv.token?.reveal()).toBe("vendor-token");
-      expect(fromEnv.requestTimeoutMs).toBe(5000);
-      expect(fromEnv.retry.maxRetries).toBe(7);
-      expect(fromEnv.connectTimeoutMs).toBe(10_000);
-
-      const vendorOnly = SkyWalkingConfig.fromEnv({}, { VENDOR_ADDR: "http://vendor:2" });
-      expect(vendorOnly.url).toBe("http://vendor:2");
-
-      const explicit = SkyWalkingConfig.fromEnv(
-        { url: "http://explicit:3", token: "explicit-token", retry: { initialBackoffMs: 1 } },
-        env,
-      );
-      expect(explicit.url).toBe("http://explicit:3");
-      expect(explicit.token?.reveal()).toBe("explicit-token");
-      expect(explicit.retry.maxRetries).toBe(7);
-      expect(explicit.retry.initialBackoffMs).toBe(1);
-
-      expect(SkyWalkingConfig.fromEnv({}, {}).url).toBe(SkyWalkingConfig.DEFAULT_URL);
-      expect(SkyWalkingConfig.fromEnv().url).toBeTypeOf("string");
-
-      let err: unknown;
-      try {
-        SkyWalkingConfig.fromEnv({}, { [`${prefix}TOTAL_TIMEOUT`]: "forever-and-secret" });
-      } catch (e) {
-        err = e;
-      }
-      expect(err).toBeInstanceOf(ConfigError);
-      expect((err as Error).message).toContain(`${prefix}TOTAL_TIMEOUT`);
-      expect((err as Error).message).not.toContain("forever-and-secret");
-    } finally {
-      vendor.url = saved.url;
-      vendor.token = saved.token;
-    }
-  });
-});
-
-describe("SkyWalkingClient", () => {
-  it("health, ping and serverVersion against the demo API", async () => {
-    const s = await demoServer();
-    const client = new SkyWalkingClient({ url: s.url, token: "t0ken-value", ...fast });
-    expect(await client.health()).toEqual({
-      healthy: true,
-      status: "ok",
-      details: { version: "1.2.3" },
-    });
+describe("SkyWalkingClient core", () => {
+  it("health, ping and serverVersion against the recorded OAP", async () => {
+    const s = await startOap();
+    const client = clientFor(s);
+    expect(await client.health()).toEqual({ healthy: true, status: "ok", details: {} });
     expect(await client.ping()).toBeGreaterThanOrEqual(0);
-    expect(await client.serverVersion()).toBe("1.2.3");
+    expect(await client.serverVersion()).toBe("10.4.0-b272da3");
     expect(client.transport.userAgent).toContain(`grow-codes-${PACKAGE_KEY}/`);
+    expect(s.requests[0]?.url).toBe("/healthcheck");
+    expect(graphqlCalls(s, "getTimeInfo")).toHaveLength(1);
+    expect(client.query).toBe(client.query);
+    expect(client.traces.backend).toBe("auto");
+    expect(client.logs).toBeDefined();
     await client.close();
   });
 
-  it("ping with a bad token raises AuthenticationError without leaking it", async () => {
-    const s = await demoServer();
-    const client = new SkyWalkingClient(
-      new SkyWalkingConfig({ url: s.url, token: "wrong-token-xyz", ...fast }),
+  it("health: 503 → unhealthy, 404 → GraphQL checkHealth score", async () => {
+    const down = await startOap((r) =>
+      r.url === "/healthcheck" ? { status: 503, body: "down" } : undefined,
     );
-    const err = await client.ping().catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(SkyWalkingError);
-    expect((err as SkyWalkingError).code).toBe("AUTHENTICATION");
-    expect((err as Error).message).not.toContain("wrong-token-xyz");
-    await client.close();
-  });
-
-  it("serverVersion raises UnsupportedError when absent", async () => {
-    const s = await startServer([{ status: 404 }]);
-    servers.push(s);
-    const client = new SkyWalkingClient({ url: s.url, ...fast });
-    await expect(client.serverVersion()).rejects.toMatchObject({ code: "UNSUPPORTED" });
-    const s2 = await startServer([{ status: 200, body: { other: 1 } }]);
-    servers.push(s2);
-    const client2 = new SkyWalkingClient({ url: s2.url, ...fast });
-    await expect(client2.serverVersion()).rejects.toMatchObject({ code: "UNSUPPORTED" });
-    await client.close();
-    await client2.close();
-  });
-
-  it("health reports vendor words and unhealthy statuses", async () => {
-    const s = await startServer((req) =>
-      req.url === "/health"
-        ? { status: 200, body: { status: "degraded" } }
-        : { status: 200, body: "" },
+    const c1 = clientFor(down);
+    expect(await c1.health()).toEqual({
+      healthy: false,
+      status: "unhealthy",
+      details: { httpStatus: "503" },
+    });
+    const noChecker = await startOap((r) =>
+      r.url === "/healthcheck" ? { status: 404 } : undefined,
     );
-    servers.push(s);
-    const degraded = new SkyWalkingClient({ url: s.url, ...fast });
-    expect(await degraded.health()).toMatchObject({ healthy: false, status: "degraded" });
-    await degraded.close();
-    const empty = await startServer([{ status: 200 }]);
-    servers.push(empty);
-    const ok = new SkyWalkingClient({ url: empty.url, ...fast });
-    expect(await ok.health()).toMatchObject({ healthy: true, status: "ok" });
-    await ok.close();
-    const down = await startServer([{ status: 500 }]);
-    servers.push(down);
-    const sick = new SkyWalkingClient({ url: down.url, ...fast });
-    expect(await sick.health()).toMatchObject({ healthy: false, status: "unhealthy" });
-    await sick.close();
+    const c2 = clientFor(noChecker);
+    expect(await c2.health()).toEqual({ healthy: true, status: "ok", details: {} });
+    let score = 1;
+    const sick = await startOap((r) =>
+      r.url === "/healthcheck"
+        ? { status: 404 }
+        : r.url === "/graphql" && gql(r).query.includes("checkHealth")
+          ? data({
+              checkHealth: score === 1 ? { score: 1, details: "storage down" } : { score: 2 },
+            })
+          : undefined,
+    );
+    const c3 = clientFor(sick);
+    expect(await c3.health()).toEqual({
+      healthy: false,
+      status: "unhealthy",
+      details: { score: "1", details: "storage down" },
+    });
+    score = 2;
+    expect(await c3.health()).toEqual({
+      healthy: false,
+      status: "unhealthy",
+      details: { score: "2" },
+    });
+    const nothing = await startOap((r) =>
+      r.url === "/healthcheck" ? { status: 404 } : r.url === "/graphql" ? data({}) : undefined,
+    );
+    expect((await clientFor(nothing).health()).healthy).toBe(false);
+    await Promise.all([c1.close(), c2.close(), c3.close()]);
   });
 
   it("core.health.unreachable: closed port -> healthy=false, status=unreachable", async () => {
@@ -210,30 +92,130 @@ describe("SkyWalkingClient", () => {
     await client.close();
   });
 
+  it("calls on a closed client fail with CANCELLED", async () => {
+    const s = await startOap();
+    const client = clientFor(s);
+    await client.close();
+    await expect(client.ping()).rejects.toMatchObject({ code: "CANCELLED" });
+    await expect(client.query.listServices()).rejects.toMatchObject({ code: "CANCELLED" });
+    await expect(client.traces.listServices()).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(s.requests).toHaveLength(0);
+  });
+
   it("health rethrows cancellation", async () => {
-    const s = await demoServer();
-    const client = new SkyWalkingClient({ url: s.url });
+    const s = await startOap();
+    const client = clientFor(s);
     await expect(client.health({ signal: AbortSignal.abort() })).rejects.toMatchObject({
       code: "CANCELLED",
     });
     await client.close();
   });
 
-  it("core.close.idempotent: close twice is safe", async () => {
-    const s = await demoServer();
-    const client = new SkyWalkingClient({ url: s.url });
-    await client.health();
+  it("ping maps a gateway 401 to AuthenticationError without leaking headers", async () => {
+    const s = await startOap(() => ({ status: 401, body: { message: "bad key" } }));
+    const client = clientFor(s, { headers: { "x-api-key": "gateway-secret-1" } });
+    const err = await client.ping().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SkyWalkingError);
+    expect((err as SkyWalkingError).code).toBe("AUTHENTICATION");
+    expect((err as Error).message).not.toContain("gateway-secret-1");
+    expect(s.requests[0]?.headers["x-api-key"]).toBe("gateway-secret-1");
+    await client.close();
+  });
+
+  it("serverVersion raises UnsupportedError when empty", async () => {
+    const s = await startOap((r) => (r.url === "/graphql" ? data({ version: "" }) : undefined));
+    const client = clientFor(s);
+    await expect(client.serverVersion()).rejects.toMatchObject({ code: "UNSUPPORTED" });
+    await client.close();
+  });
+
+  it("graphql returns data and errors; HTTP 400 throws ValidationError", async () => {
+    const s = await startOap((r) =>
+      r.url === "/graphql" && gql(r).query.includes("getGlobalTopology")
+        ? reply("graphql.fetch-error")
+        : undefined,
+    );
+    const client = clientFor(s);
+    const ok = await client.graphql<{ version: string }>("{version}");
+    expect(ok).toEqual({ data: { version: "10.4.0-b272da3" }, errors: [] });
+    const partial = await client.graphql(
+      "query($d:Duration!){getGlobalTopology(duration:$d){nodes{id}}}",
+      {
+        d: { start: "x", end: "y", step: "MINUTE" },
+      },
+    );
+    expect(partial.data).toEqual({ getGlobalTopology: null });
+    expect(partial.errors[0]).toMatchObject({
+      path: ["getGlobalTopology"],
+      classification: "DataFetchingException",
+    });
+    const err = await client.graphql("{nope}").catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: "VALIDATION", httpStatus: 400 });
+    expect((err as Error).message).toContain("FieldUndefined");
+    await expect(client.graphql("  ")).rejects.toMatchObject({ code: "VALIDATION" });
+    await client.close();
+  });
+
+  it("graphql marks mutations non-idempotent (no retry on 500)", async () => {
+    const s = await startOap(() => ({ status: 500, body: "boom" }));
+    const client = clientFor(s);
+    await expect(client.graphql("mutation { x }")).rejects.toMatchObject({ code: "UNAVAILABLE" });
+    expect(s.requests).toHaveLength(1);
+    await expect(client.graphql("{version}")).rejects.toMatchObject({ code: "UNAVAILABLE" });
+    expect(s.requests).toHaveLength(3);
+    await client.close();
+  });
+
+  it("logClient sends native logs and close() flushes it; close is idempotent", async () => {
+    const s = await startOap();
+    const client = clientFor(s);
+    const logs = client.logClient({
+      serviceName: "svc-a",
+      serviceInstance: "inst-1",
+      batch: { flushIntervalMs: 60_000 },
+    });
+    logs.send({ message: "hello", severity: Severity.Warn, attributes: { n: 1 } });
+    const handle = client.initTracing({ serviceName: "svc-a", setGlobal: false });
     await client.close();
     await client.close();
-    await expect(client.ping()).rejects.toMatchObject({ code: "CONFIG" });
+    const post = s.requests.find((r) => r.url === "/v3/logs");
+    expect(post).toBeDefined();
+    const body = JSON.parse(post?.body ?? "[]") as Record<string, unknown>[];
+    expect(body[0]).toMatchObject({
+      service: "svc-a",
+      serviceInstance: "inst-1",
+      body: { text: { text: "hello" } },
+      layer: "GENERAL",
+    });
+    expect(logs.stats().sent).toBe(1);
+    await handle.shutdown();
+    await expect(client.ping()).rejects.toMatchObject({ code: "CANCELLED" });
+  });
+
+  it("createLogClient owns its connections", async () => {
+    const s = await startOap();
+    const logs = createLogClient({ url: s.url, ...fast }, { batch: { flushIntervalMs: 60_000 } });
+    logs.send({ message: "standalone" });
+    await logs.close();
+    const body = JSON.parse(s.requests.find((r) => r.url === "/v3/logs")?.body ?? "[]") as Record<
+      string,
+      unknown
+    >[];
+    expect(body[0]?.service).toBe("unknown_service");
+    const named = createLogClient(
+      new SkyWalkingConfig({ url: s.url }),
+      { serviceName: "named" },
+      {},
+    );
+    await named.close();
   });
 
   it("fromEnv builds from GROW_* variables", async () => {
-    const s = await demoServer();
+    const s = await startOap();
     const key = `${SkyWalkingConfig.ENV_PREFIX}URL`;
     process.env[key] = s.url;
     try {
-      const client = SkyWalkingClient.fromEnv({ token: "t0ken-value" });
+      const client = SkyWalkingClient.fromEnv({ traceBackend: "native" });
       expect(client.config.url).toBe(s.url);
       expect(await client.ping()).toBeGreaterThanOrEqual(0);
       await client.close();

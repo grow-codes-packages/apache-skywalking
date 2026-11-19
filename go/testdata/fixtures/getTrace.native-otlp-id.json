@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($id:ID!){queryTrace(traceId:$id){spans{segmentId}}}",
+      "variables": {
+        "id": "055ffba8ecc69a64950538fda698a308"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "queryTrace": {
+          "spans": []
+        }
+      }
+    }
+  }
+}

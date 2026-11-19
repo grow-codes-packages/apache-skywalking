@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/v3/logs",
+    "body": "[{"
+  },
+  "response": {
+    "status": 500,
+    "headers": {
+      "content-type": "text/plain; charset=utf-8"
+    },
+    "body": "Status: 500\nDescription: Internal Server Error\n"
+  }
+}

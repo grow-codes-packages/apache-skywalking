@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:11800/opentelemetry.proto.collector.trace.v1.TraceService/Export",
+    "body": "<OTLP protobuf, see verify/gen_payloads.py>"
+  },
+  "protocol": "grpc",
+  "response": {
+    "status": 2,
+    "headers": {
+      "content-type": "application/grpc",
+      "grpc-status": "2",
+      "grpc-message": "Application error processing RPC"
+    },
+    "body": "Application error processing RPC"
+  }
+}

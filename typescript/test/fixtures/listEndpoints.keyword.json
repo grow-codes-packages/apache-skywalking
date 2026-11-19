@@ -1,0 +1,30 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($s:ServiceCondition!){findEndpointByName(keyword:\"downstream\",service:$s,limit:10){id name}}",
+      "variables": {
+        "s": {
+          "serviceName": "sw-native-b-1fddf66a"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "findEndpointByName": [
+          {
+            "id": "c3ctbmF0aXZlLWItMWZkZGY2NmE=.1_L25hdGl2ZS9kb3duc3RyZWFt",
+            "name": "/native/downstream"
+          }
+        ]
+      }
+    }
+  }
+}

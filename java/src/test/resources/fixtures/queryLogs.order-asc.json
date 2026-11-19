@@ -1,0 +1,50 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($c:LogQueryCondition){queryLogs(condition:$c){errorReason logs{content timestamp}}}",
+      "variables": {
+        "c": {
+          "queryDuration": {
+            "start": "2026-11-18 2040",
+            "end": "2026-11-18 2115",
+            "step": "MINUTE"
+          },
+          "paging": {
+            "pageNum": 1,
+            "pageSize": 50
+          },
+          "queryOrder": "ASC"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "queryLogs": {
+          "errorReason": null,
+          "logs": [
+            {
+              "content": "order created native-log-1fddf66a",
+              "timestamp": 1795036241725
+            },
+            {
+              "content": "payment accepted otlp-log-1fddf66a",
+              "timestamp": 1795036241755
+            },
+            {
+              "content": "native log with otel trace native-log-1fddf66a-otel",
+              "timestamp": 1795036241760
+            }
+          ]
+        }
+      }
+    }
+  }
+}

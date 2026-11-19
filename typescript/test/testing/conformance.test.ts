@@ -1,3 +1,6 @@
+// Service-owned (taken over from the sdk-kit skeleton): runs the core conformance scenarios
+// against the mock OAP that answers with recorded responses.
+
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SkyWalkingClient } from "../../src/client.js";
@@ -7,36 +10,28 @@ import {
   formatReport,
   runConformance,
 } from "../../src/testing/index.js";
-import { type MockServer, startServer } from "../helpers/server.js";
+import type { MockServer } from "../helpers/server.js";
+import { closeOaps, startOap } from "../oap-mock.js";
 
 const scenariosDir = fileURLToPath(new URL("../../../conformance/scenarios/", import.meta.url));
 let server: MockServer;
 
 beforeAll(async () => {
-  server = await startServer((req) => {
-    if (req.url === "/health") return { status: 200, body: { status: "ok" } };
-    if (req.url === "/version") return { status: 200, body: { version: "0.0.1" } };
-    if (req.url === "/v1/ping") return { status: 200, body: {} };
-    return { status: 404 };
-  });
+  server = await startOap();
 });
 
-afterAll(async () => {
-  await server.close();
-});
+afterAll(closeOaps);
 
 function options(): ConformanceOptions {
   return {
     scenariosDir,
     categories: ["core"],
-    factories: {
-      core: () => new SkyWalkingClient({ url: server.url, token: "conformance-token" }),
-    },
+    factories: { core: () => new SkyWalkingClient({ url: server.url }) },
     capabilities: { core: ["version"] },
   };
 }
 
-describe("conformance (core) against a local demo API", () => {
+describe("conformance (core) against the recorded OAP", () => {
   it("every core scenario passes", async () => {
     const report = await runConformance(options());
     expect(report.failed, formatReport(report)).toBe(0);

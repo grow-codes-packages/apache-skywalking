@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://apache-skywalking:12800/healthcheck"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "text/plain; charset=utf-8"
+    },
+    "body": "200 OK"
+  }
+}

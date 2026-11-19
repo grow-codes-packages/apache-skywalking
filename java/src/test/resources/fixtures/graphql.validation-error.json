@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "{nope}",
+      "variables": {}
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "errors": [
+        {
+          "message": "Validation error (FieldUndefined@[nope]) : Field 'nope' in type 'Query' is undefined",
+          "locations": [
+            {
+              "line": 1,
+              "column": 2
+            }
+          ],
+          "extensions": {
+            "classification": "ValidationError"
+          }
+        }
+      ]
+    }
+  }
+}

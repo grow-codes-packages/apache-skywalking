@@ -1,14 +1,17 @@
-// Command example shows the basics of the Apache SkyWalking Go SDK: configuration
-// from the environment, health, an authenticated ping and error handling.
+// Command example shows the Apache SkyWalking Go SDK against a real OAP: health and
+// version, OpenTelemetry tracing over OTLP gRPC, reading the trace back, native logs,
+// a log search and the GraphQL query API.
 //
-//	GROW_APACHE_SKYWALKING_URL=http://127.0.0.1:12800 GROW_APACHE_SKYWALKING_TOKEN=... go run .
+//	GROW_APACHE_SKYWALKING_URL=http://127.0.0.1:12800 go run .
+//
+// OTLP spans are read back through OAP's Zipkin query API (SW_QUERY_ZIPKIN=default,
+// port 9412); set GROW_APACHE_SKYWALKING_ZIPKIN_URL when it is not on the OAP host.
 package main
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"time"
 
@@ -23,52 +26,75 @@ func main() {
 }
 
 func run() error {
-	cfg, err := skywalking.ConfigFromEnv()
+	client, err := skywalking.NewClientFromEnv()
 	if err != nil {
 		return err // CONFIG error naming the variable, never its value
 	}
-	cfg.Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	cfg.Hooks = &skywalking.Hooks{
-		OnError: func(info skywalking.ErrorInfo) {
-			if info.WillRetry {
-				fmt.Fprintf(os.Stderr, "retrying %s %s (attempt %d)\n", info.Method, info.URL, info.Attempt)
-			}
-		},
-	}
-	fmt.Println("config:", cfg) // credentials print as [REDACTED]
-
-	client, err := skywalking.NewClient(cfg)
-	if err != nil {
-		return err
-	}
 	defer func() { _ = client.Close() }()
+	fmt.Println("config:", client.Config()) // credentials print as [REDACTED]
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	health, err := client.Health(ctx)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("health: healthy=%t status=%s\n", health.Healthy, health.Status)
-
-	latency, err := client.Ping(ctx)
-	switch {
-	case errors.Is(err, skywalking.ErrAuthentication):
-		return fmt.Errorf("check GROW_APACHE_SKYWALKING_TOKEN: %w", err)
-	case err != nil:
+	version, err := client.ServerVersion(ctx)
+	if err != nil {
 		return err
 	}
-	fmt.Println("ping:", latency)
+	fmt.Printf("health: %s, OAP %s\n", health.Status, version)
 
-	version, err := client.ServerVersion(ctx)
+	// Tracing: OTLP gRPC to OAP (port 11800), W3C + sw8 propagation.
+	tracing, err := client.InitTracing(ctx, skywalking.TracingConfig{ServiceName: "example-go", DisableSetGlobal: true})
+	if err != nil {
+		return err
+	}
+	spanCtx, span := tracing.Tracer("example").Start(ctx, "checkout")
+	traceID, _ := skywalking.CurrentTraceID(spanCtx)
+	span.End()
+	if err := tracing.Shutdown(ctx); err != nil {
+		return err
+	}
+
+	// Logs: native /v3/logs exporter, correlated with the trace.
+	logs, err := client.NewLogClient(skywalking.LogClientOptions{Resource: map[string]skywalking.AttrValue{"service.name": "example-go"}})
+	if err != nil {
+		return err
+	}
+	logs.Send(ctx, skywalking.LogInput{Message: "order accepted", Severity: skywalking.SeverityInfo, TraceID: traceID})
+	if err := logs.Close(ctx); err != nil {
+		return err
+	}
+
+	// Read the trace back (OTLP spans live in OAP's Zipkin store).
+	trace, err := client.Traces().WaitForTrace(ctx, traceID, skywalking.WaitForTraceOptions{Timeout: time.Minute})
 	switch {
-	case errors.Is(err, skywalking.ErrUnsupported):
-		fmt.Println("server version: not exposed")
+	case errors.Is(err, skywalking.ErrTimeout):
+		fmt.Println("trace not readable yet (is SW_QUERY_ZIPKIN enabled?)")
 	case err != nil:
 		return err
 	default:
-		fmt.Println("server version:", version)
+		fmt.Printf("trace %s: %d span(s), root %q\n", trace.TraceID, len(trace.Spans), trace.Spans[0].Name)
 	}
+
+	rec, err := client.Logs().WaitForLog(ctx, "service=example-go order accepted", skywalking.WaitForLogOptions{Timeout: time.Minute})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("log: %s trace=%s\n", rec.Body, rec.TraceID)
+
+	// Native GraphQL query API.
+	services, err := client.Query().ListServices(ctx, "")
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%d service(s) with native metadata\n", len(services))
+	topo, err := client.Query().Topology(ctx, skywalking.TimeRange{}, skywalking.TopologyOptions{})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("topology: %d node(s), %d call(s)\n", len(topo.Nodes), len(topo.Calls))
 	return nil
 }

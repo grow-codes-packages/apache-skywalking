@@ -1,0 +1,43 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($c:TraceQueryCondition){queryTraces(condition:$c){traces{spans{traceId segmentId spanId parentSpanId serviceCode endpointName startTime endTime isError}} retrievedTimeRange{startTime endTime}}}",
+      "variables": {
+        "c": {
+          "queryDuration": {
+            "start": "2026-11-18 2040",
+            "end": "2026-11-18 2115",
+            "step": "MINUTE"
+          },
+          "traceState": "ALL",
+          "queryOrder": "BY_START_TIME",
+          "paging": {
+            "pageNum": 1,
+            "pageSize": 20
+          },
+          "minTraceDuration": 60000,
+          "serviceId": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "queryTraces": {
+          "traces": [],
+          "retrievedTimeRange": {
+            "startTime": 1795034400000,
+            "endTime": 1795036560000
+          }
+        }
+      }
+    }
+  }
+}

@@ -384,7 +384,7 @@ describe("HttpTransport errors", () => {
     expect((await transport(empty.url).get("/x")).data).toBeUndefined();
   });
 
-  it("requests after close fail with ConfigError; close is idempotent", async () => {
+  it("requests after close fail with CancelledError; close is idempotent", async () => {
     const s = await serve([{ status: 200 }]);
     const t = transport(s.url);
     await t.get("/x", { responseType: "none" });
@@ -392,7 +392,7 @@ describe("HttpTransport errors", () => {
     await t.close();
     expect(t.closed).toBe(true);
     const err = await failure(t.get("/x"));
-    expect(err.code).toBe("CONFIG");
+    expect(err.code).toBe("CANCELLED");
   });
 });
 

@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/v3/management/keepAlive",
+    "body": {
+      "service": "sw-native-a-1fddf66a",
+      "serviceInstance": "inst-a-1fddf66a"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/protobuf"
+    },
+    "body": ""
+  }
+}

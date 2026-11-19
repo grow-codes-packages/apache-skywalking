@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($d:Duration!){queryLogTagAutocompleteKeys(duration:$d)}",
+      "variables": {
+        "d": {
+          "start": "2026-11-18 2040",
+          "end": "2026-11-18 2115",
+          "step": "MINUTE"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "queryLogTagAutocompleteKeys": [
+          "trace_id",
+          "run_id",
+          "span_id",
+          "level"
+        ]
+      }
+    }
+  }
+}

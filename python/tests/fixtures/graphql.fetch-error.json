@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($d:Duration!){getGlobalTopology(duration:$d){nodes{id}}}",
+      "variables": {
+        "d": {
+          "start": "2026-11-18T10:00",
+          "end": "x",
+          "step": "MINUTE"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "errors": [
+        {
+          "message": "Exception while fetching data (/getGlobalTopology) : java.lang.IllegalArgumentException: Invalid format: \"2026-11-18T10:00\" is malformed at \"T10:00\"",
+          "locations": [
+            {
+              "line": 1,
+              "column": 21
+            }
+          ],
+          "path": ["getGlobalTopology"],
+          "extensions": {
+            "classification": "DataFetchingException"
+          }
+        }
+      ],
+      "data": {
+        "getGlobalTopology": null
+      }
+    }
+  }
+}

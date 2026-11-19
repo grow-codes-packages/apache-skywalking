@@ -1,0 +1,80 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($c:TraceQueryCondition){queryTraces(condition:$c){traces{spans{traceId segmentId spanId parentSpanId serviceCode endpointName startTime endTime isError}} retrievedTimeRange{startTime endTime}}}",
+      "variables": {
+        "c": {
+          "queryDuration": {
+            "start": "2026-11-18 2040",
+            "end": "2026-11-18 2115",
+            "step": "MINUTE"
+          },
+          "traceState": "ALL",
+          "queryOrder": "BY_START_TIME",
+          "paging": {
+            "pageNum": 1,
+            "pageSize": 20
+          },
+          "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "queryTraces": {
+          "traces": [
+            {
+              "spans": [
+                {
+                  "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775",
+                  "segmentId": "1fddf66a0691f3d5361838903180a743.1.1795036241775",
+                  "spanId": 0,
+                  "parentSpanId": -1,
+                  "serviceCode": "sw-native-a-1fddf66a",
+                  "endpointName": "/native/entry",
+                  "startTime": 1795036241675,
+                  "endTime": 1795036241775,
+                  "isError": false
+                },
+                {
+                  "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775",
+                  "segmentId": "1fddf66a0691f3d5361838903180a743.1.1795036241775",
+                  "spanId": 1,
+                  "parentSpanId": 0,
+                  "serviceCode": "sw-native-a-1fddf66a",
+                  "endpointName": "/native/downstream",
+                  "startTime": 1795036241695,
+                  "endTime": 1795036241755,
+                  "isError": false
+                },
+                {
+                  "traceId": "1fddf66a1c64db2c1345419627769f1f.1.1795036241775",
+                  "segmentId": "1fddf66a70c2344bb33099ba110e3b65.2.1795036241775",
+                  "spanId": 0,
+                  "parentSpanId": -1,
+                  "serviceCode": "sw-native-b-1fddf66a",
+                  "endpointName": "/native/downstream",
+                  "startTime": 1795036241705,
+                  "endTime": 1795036241745,
+                  "isError": true
+                }
+              ]
+            }
+          ],
+          "retrievedTimeRange": {
+            "startTime": 1795034400000,
+            "endTime": 1795036560000
+          }
+        }
+      }
+    }
+  }
+}

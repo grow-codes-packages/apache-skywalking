@@ -1,181 +1,275 @@
 package skywalking
 
 import (
-	"errors"
-	"fmt"
+	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 )
 
-// newTestClient builds a client for url with fast retries; mutate adjusts the config.
-func newTestClient(t *testing.T, url string, mutate func(*Config)) *Client {
-	t.Helper()
-	cfg := Config{CommonConfig: CommonConfig{URL: url, Retry: fastRetry(3)}, Token: NewSecret(testToken)}
-	if mutate != nil {
-		mutate(&cfg)
-	}
-	c, err := NewClient(cfg)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
-	return c
-}
-
-func TestClientConfig(t *testing.T) {
-	t.Run("core.config.env-precedence", func(t *testing.T) {
-		saved, savedTok := vendorEnv, vendorTokenEnv
-		t.Cleanup(func() { vendorEnv, vendorTokenEnv = saved, savedTok })
-		vendorEnv = VendorEnv{URL: []string{"VENDOR_ADDR"}}
-		vendorTokenEnv = []string{"VENDOR_TOKEN"}
-
-		env := map[string]string{EnvPrefix + "URL": "http://grow:1", "VENDOR_ADDR": "http://vendor:2", "VENDOR_TOKEN": "vendor-token"}
-		cfg, err := ConfigFromEnvWith(Config{}, env)
-		if err != nil || cfg.URL != "http://grow:1" || cfg.Token.Reveal() != "vendor-token" {
-			t.Fatalf("env: %v %s", err, cfg)
-		}
-		env[EnvPrefix+"TOKEN"] = "grow-token"
-		cfg, _ = ConfigFromEnvWith(Config{}, env)
-		if cfg.Token.Reveal() != "grow-token" {
-			t.Fatal("GROW_* token must beat the vendor variable")
-		}
-		cfg, _ = ConfigFromEnvWith(Config{CommonConfig: CommonConfig{URL: "https://explicit"}, Token: NewSecret("explicit")}, env)
-		if cfg.URL != "https://explicit" || cfg.Token.Reveal() != "explicit" {
-			t.Fatal("explicit must win")
-		}
-		cfg, _ = ConfigFromEnvWith(Config{}, map[string]string{})
-		if cfg.URL != DefaultURL || cfg.RequestTimeout != DefaultRequestTimeout {
-			t.Fatalf("defaults: %s", cfg)
-		}
-		_, err = ConfigFromEnvWith(Config{}, map[string]string{EnvPrefix + "TOTAL_TIMEOUT": "forever-xyz"})
-		if !errors.Is(err, ErrConfig) || !strings.Contains(err.Error(), EnvPrefix+"TOTAL_TIMEOUT") || strings.Contains(err.Error(), "forever-xyz") {
-			t.Fatalf("invalid value: %v", err)
-		}
-		if _, err := ConfigFromEnvWith(Config{}, map[string]string{EnvPrefix + "URL": "ftp://nope"}); !errors.Is(err, ErrConfig) {
-			t.Fatalf("invalid url: %v", err)
-		}
-		t.Setenv(EnvPrefix+"URL", "http://process-env:9")
-		if cfg, err := ConfigFromEnv(); err != nil || cfg.URL != "http://process-env:9" {
-			t.Fatalf("process env: %v %s", err, cfg.URL)
+func TestHealth(t *testing.T) {
+	t.Run("healthcheck 200", func(t *testing.T) {
+		m := newMockOAP(t).route("GET /healthcheck", "health.http")
+		hs, err := m.client().Health(t.Context())
+		if err != nil || !hs.Healthy || hs.Status != "ok" || hs.Details["httpStatus"] != "200" {
+			t.Fatalf("%+v %v", hs, err)
 		}
 	})
-
-	t.Run("core.redaction.config", func(t *testing.T) {
-		cfg := Config{
-			CommonConfig: CommonConfig{URL: "https://h", Headers: map[string]string{"X-Api-Key": "hdr-xyz"}},
-			Token:        NewSecret("tok-xyz"),
+	t.Run("healthcheck 503", func(t *testing.T) {
+		m := newMockOAP(t).route("GET /healthcheck", textBody(503, "text/plain", "storage down\nmore"))
+		hs, err := m.client().Health(t.Context())
+		if err != nil || hs.Healthy || hs.Status != "unhealthy" || hs.Details["details"] != "storage down" {
+			t.Fatalf("%+v %v", hs, err)
 		}
-		forms := fmt.Sprintf("%v|%+v|%#v|%s", cfg, cfg, cfg, cfg.String())
-		if strings.Contains(forms, "tok-xyz") || strings.Contains(forms, "hdr-xyz") || !strings.Contains(forms, "Token:"+Redacted) {
-			t.Fatalf("forms: %s", forms)
-		}
-	})
-
-	t.Run("invalid config", func(t *testing.T) {
-		if _, err := NewClient(Config{CommonConfig: CommonConfig{URL: "mailto:x"}}); !errors.Is(err, ErrConfig) {
-			t.Fatalf("NewClient: %v", err)
-		}
-		if _, err := NewClient(Config{CommonConfig: CommonConfig{TLS: TLSConfig{CACertPEM: "bad"}}}); !errors.Is(err, ErrConfig) {
-			t.Fatalf("bad TLS: %v", err)
+		m.route("GET /healthcheck", textBody(503, "text/plain", ""))
+		hs, _ = m.client().Health(t.Context())
+		if hs.Healthy || hs.Details["details"] != "" {
+			t.Fatalf("%+v", hs)
 		}
 	})
-}
-
-func TestClient(t *testing.T) {
-	ts := newTestServer(t, func(w http.ResponseWriter, r *http.Request, _ int) {
-		switch r.URL.Path {
-		case "/health":
-			_, _ = w.Write([]byte(`{"status":"ok"}`))
-		case "/version":
-			_, _ = w.Write([]byte(`{"version":"9.9.9"}`))
-		case "/v1/ping":
-			if r.Header.Get("Authorization") != "Bearer "+testToken {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			_, _ = w.Write([]byte(`{}`))
-		default:
-			w.WriteHeader(http.StatusNotFound)
+	t.Run("graphql fallback", func(t *testing.T) {
+		m := newMockOAP(t).on("checkHealth", "health.graphql")
+		hs, err := m.client().Health(t.Context())
+		if err != nil || !hs.Healthy || hs.Details["score"] != "0" {
+			t.Fatalf("%+v %v", hs, err)
+		}
+		m.on("checkHealth", jsonBody(200, `{"data":{"checkHealth":{"score":2,"details":"banyandb unreachable"}}}`))
+		hs, _ = m.client().Health(t.Context())
+		if hs.Healthy || hs.Status != "unhealthy" || hs.Details["details"] != "banyandb unreachable" {
+			t.Fatalf("%+v", hs)
+		}
+		m.on("checkHealth", jsonBody(500, `{}`))
+		hs, err = m.client().Health(t.Context())
+		if err != nil || hs.Status != "unreachable" {
+			t.Fatalf("%+v %v", hs, err)
 		}
 	})
-
-	t.Run("health ping version", func(t *testing.T) {
-		c := newTestClient(t, ts.URL, nil)
-		if hs, err := c.Health(t.Context()); err != nil || !hs.Healthy || hs.Status != "ok" {
-			t.Fatalf("health %+v %v", hs, err)
-		}
-		if d, err := c.Ping(t.Context()); err != nil || d <= 0 {
-			t.Fatalf("ping %s %v", d, err)
-		}
-		if v, err := c.ServerVersion(t.Context()); err != nil || v != "9.9.9" {
-			t.Fatalf("version %q %v", v, err)
-		}
-		if c.Config().URL != ts.URL {
-			t.Fatal("Config()")
-		}
-	})
-
-	t.Run("authentication errors", func(t *testing.T) {
-		bad := newTestClient(t, ts.URL, func(cfg *Config) { cfg.Token = NewSecret("wrong-token") })
-		if _, err := bad.Ping(t.Context()); !errors.Is(err, ErrAuthentication) {
-			t.Fatalf("bad token: %v", err)
-		}
-		none := newTestClient(t, ts.URL, func(cfg *Config) { cfg.Token = Secret{} })
-		if _, err := none.Ping(t.Context()); !errors.Is(err, ErrAuthentication) {
-			t.Fatalf("no token: %v", err)
-		}
-	})
-
-	t.Run("server version errors", func(t *testing.T) {
-		ts404 := newTestServer(t, status(http.StatusNotFound))
-		if _, err := newTestClient(t, ts404.URL, nil).ServerVersion(t.Context()); !errors.Is(err, ErrUnsupported) {
-			t.Fatalf("no version endpoint: %v", err)
-		}
-		ts500 := newTestServer(t, status(http.StatusInternalServerError))
-		c := newTestClient(t, ts500.URL, func(cfg *Config) { cfg.Retry = fastRetry(0) })
-		if _, err := c.ServerVersion(t.Context()); !errors.Is(err, ErrUnavailable) {
-			t.Fatalf("version 500: %v", err)
-		}
-		tsBad := newTestServer(t, func(w http.ResponseWriter, _ *http.Request, _ int) { _, _ = w.Write([]byte("nope")) })
-		if _, err := newTestClient(t, tsBad.URL, nil).ServerVersion(t.Context()); !errors.Is(err, ErrUnavailable) {
-			t.Fatalf("version decode: %v", err)
-		}
-	})
-
-	t.Run("core.close.idempotent", func(t *testing.T) {
-		c := newTestClient(t, ts.URL, nil)
-		first, second := c.Close(), c.Close()
-		if first != nil || second != nil {
-			t.Fatal("close")
-		}
-		if _, err := c.Ping(t.Context()); !errors.Is(err, ErrCancelled) {
-			t.Fatalf("after close: %v", err)
-		}
-	})
-
-	t.Run("core.health.unreachable", func(t *testing.T) {
-		c := newTestClient(t, "http://"+closedAddr(t), func(cfg *Config) { cfg.ConnectTimeout = time.Second })
-		if hs, err := c.Health(t.Context()); err != nil || hs.Healthy || hs.Status != "unreachable" {
-			t.Fatalf("hs=%+v err=%v", hs, err)
-		}
-	})
-
-	t.Run("from env", func(t *testing.T) {
-		t.Setenv(EnvPrefix+"URL", ts.URL)
-		t.Setenv(EnvPrefix+"TOKEN", testToken)
-		c, err := NewClientFromEnv()
+	t.Run("unreachable and cancelled", func(t *testing.T) {
+		c, err := NewClient(Config{CommonConfig: CommonConfig{URL: "http://127.0.0.1:1", Retry: fastRetry(0)}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer func() { _ = c.Close() }()
-		if _, err := c.Ping(t.Context()); err != nil {
+		hs, err := c.Health(t.Context())
+		if err != nil || hs.Status != "unreachable" || hs.Healthy {
+			t.Fatalf("%+v %v", hs, err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		_, err = c.Health(ctx)
+		mustCode(t, err, ErrorCodeCancelled)
+	})
+}
+
+func TestPingVersionCapabilities(t *testing.T) {
+	m := newMockOAP(t).on("version", "serverVersion.ok").on("hasQueryTracesV2Support", "capabilities.ok")
+	c := m.client()
+	d, err := c.Ping(t.Context())
+	if err != nil || d <= 0 {
+		t.Fatal(d, err)
+	}
+	r := m.last("getTimeInfo")
+	if r.Header.Get("Content-Type") != "application/json" || !strings.HasPrefix(r.Header.Get("User-Agent"), "grow-codes-apache-skywalking/") {
+		t.Fatal(r.Header)
+	}
+	v, err := c.ServerVersion(t.Context())
+	if err != nil || v != "10.4.0-b272da3" {
+		t.Fatal(v, err)
+	}
+	caps, err := c.Query().Capabilities(t.Context())
+	if err != nil || !caps.QueryTracesV2 || caps.LogsByKeywords {
+		t.Fatal(caps, err)
+	}
+	_, _ = c.Query().Capabilities(t.Context())
+	if m.count("hasQueryTracesV2Support") != 1 {
+		t.Fatal("capabilities not cached")
+	}
+	ti, err := c.Query().TimeInfo(t.Context())
+	if err != nil || ti.Timezone != "+0000" || ti.CurrentTime.UnixMilli() != 1795036301381 {
+		t.Fatal(ti, err)
+	}
+
+	m.on("version", jsonBody(200, `{"data":{"version":""}}`))
+	_, err = c.ServerVersion(t.Context())
+	mustCode(t, err, ErrorCodeUnsupported)
+
+	m2 := newMockOAP(t).on("hasQueryTracesV2Support", "graphql.validation-error")
+	_, err = m2.client().Query().Capabilities(t.Context())
+	mustCode(t, err, ErrorCodeValidation)
+	m2.on("hasQueryTracesV2Support", "queryBasicTraces.unsupported")
+	_, err = m2.client().Query().Capabilities(t.Context())
+	mustCode(t, err, ErrorCodeUnsupported)
+	m2.on("hasQueryTracesV2Support", jsonBody(200, `{"data":null}`))
+	_, err = m2.client().Query().Capabilities(t.Context())
+	mustCode(t, err, ErrorCodeUnavailable)
+}
+
+func TestPingErrors(t *testing.T) {
+	m := newMockOAP(t).on("getTimeInfo", textBody(401, "text/plain", "gateway says no"))
+	_, err := m.client().Ping(t.Context())
+	mustCode(t, err, ErrorCodeAuthentication)
+	if !strings.Contains(err.Error(), "gateway says no") {
+		t.Fatal(err)
+	}
+}
+
+func TestGraphQLRaw(t *testing.T) {
+	m := newMockOAP(t).on("version", "serverVersion.ok")
+	c := m.client()
+	res, err := c.GraphQL(t.Context(), "{version}", nil)
+	if err != nil || res.Err("x") != nil {
+		t.Fatal(err)
+	}
+	var data struct {
+		Version string `json:"version"`
+	}
+	if err := res.Decode(&data); err != nil || data.Version != "10.4.0-b272da3" {
+		t.Fatal(data, err)
+	}
+	if got := m.last("version").GQL.Variables; got == nil || len(got) != 0 {
+		t.Fatalf("variables must be an empty object: %v", got)
+	}
+
+	t.Run("validation error is HTTP 400", func(t *testing.T) {
+		m.on("nope", "graphql.validation-error")
+		_, err := c.GraphQL(t.Context(), "{nope}", map[string]any{"a": 1})
+		mustCode(t, err, ErrorCodeValidation)
+		if !strings.Contains(err.Error(), "FieldUndefined") || asError(t, err).HTTPStatus != 400 {
 			t.Fatal(err)
 		}
-		t.Setenv(EnvPrefix+"URL", "mailto:x")
-		if _, err := NewClientFromEnv(); !errors.Is(err, ErrConfig) {
-			t.Fatalf("bad env: %v", err)
+	})
+	t.Run("fetch error returns partial data", func(t *testing.T) {
+		m.on("getGlobalTopology", "graphql.fetch-error")
+		res, err := c.GraphQL(t.Context(), "query($d:Duration!){getGlobalTopology(duration:$d){nodes{id}}}", nil)
+		if err != nil || len(res.Errors) != 1 || res.Errors[0].Extensions["classification"] != "DataFetchingException" {
+			t.Fatal(res, err)
+		}
+		mustCode(t, res.Err("topology"), ErrorCodeValidation)
+		_, err = c.Query().Topology(t.Context(), TimeRange{}, TopologyOptions{})
+		mustCode(t, err, ErrorCodeValidation)
+	})
+	t.Run("bad json and wrong method are validation errors", func(t *testing.T) {
+		m.on("broken", "graphql.bad-json")
+		_, err := c.GraphQL(t.Context(), "{broken}", nil)
+		mustCode(t, err, ErrorCodeValidation)
+		if !strings.Contains(err.Error(), "Failed to parse") {
+			t.Fatal(err)
+		}
+		m.on("method", "graphql.get-405")
+		_, err = c.GraphQL(t.Context(), "{method}", nil)
+		mustCode(t, err, ErrorCodeValidation)
+	})
+	t.Run("required query and invalid bodies", func(t *testing.T) {
+		_, err := c.GraphQL(t.Context(), " ", nil)
+		mustCode(t, err, ErrorCodeValidation)
+		m.on("garbage", textBody(200, "application/json", "not json"))
+		_, err = c.GraphQL(t.Context(), "{garbage}", nil)
+		mustCode(t, err, ErrorCodeUnavailable)
+		var x map[string]any
+		mustCode(t, (*GraphQLResponse)(nil).Decode(&x), ErrorCodeUnavailable)
+		mustCode(t, (&GraphQLResponse{Data: json.RawMessage(`[`)}).Decode(&x), ErrorCodeUnavailable)
+		if (*GraphQLResponse)(nil).Err("x") != nil {
+			t.Fatal("nil response has no error")
+		}
+		// typed calls: missing field and wrong type
+		m.on("version", jsonBody(200, `{"data":{"other":1}}`))
+		_, err = c.ServerVersion(t.Context())
+		mustCode(t, err, ErrorCodeUnavailable)
+		m.on("version", jsonBody(200, `{"data":{"version":5}}`))
+		_, err = c.ServerVersion(t.Context())
+		mustCode(t, err, ErrorCodeUnavailable)
+		m.on("version", jsonBody(200, `{"data":[1]}`))
+		_, err = c.ServerVersion(t.Context())
+		mustCode(t, err, ErrorCodeUnavailable)
+	})
+	t.Run("secrets are redacted from graphql errors", func(t *testing.T) {
+		mc := newMockOAP(t).on("leak", jsonBody(200, `{"errors":[{"message":"bad token sw-secret-1"}],"data":null}`))
+		cc := mc.client(func(cfg *Config) { cfg.Authentication = NewSecret("sw-secret-1") })
+		res, err := cc.GraphQL(t.Context(), "{leak}", nil)
+		if err != nil || strings.Contains(res.Errors[0].Message, "sw-secret-1") {
+			t.Fatal(res, err)
 		}
 	})
 }
+
+func TestTimezoneAndDuration(t *testing.T) {
+	m := newMockOAP(t).on("getTimeInfo", jsonBody(200, `{"data":{"getTimeInfo":{"timezone":"+0530","currentTimestamp":1}}}`)).
+		on("queryLogTagAutocompleteKeys", "queryLogTagAutocompleteKeys.ok")
+	c := m.client()
+	start := time.Date(2026, 11, 18, 20, 40, 0, 0, time.UTC)
+	keys, err := c.Query().ListLogTagKeys(t.Context(), TimeRange{Start: start, End: fixedNow})
+	if err != nil || strings.Join(keys, ",") != "level,run_id,span_id,trace_id" {
+		t.Fatal(keys, err)
+	}
+	d := m.last("queryLogTagAutocompleteKeys").GQL.Variables["d"].(map[string]any)
+	if d["start"] != "2026-11-19 0210" || d["end"] != "2026-11-19 0245" || d["step"] != "MINUTE" {
+		t.Fatal(d)
+	}
+	_, _ = c.Query().ListLogTagKeys(t.Context(), TimeRange{})
+	if m.count("getTimeInfo") != 1 {
+		t.Fatal("timezone not cached")
+	}
+	for _, tc := range []struct {
+		step Step
+		want string
+	}{{StepDay, "2026-11-18"}, {StepHour, "2026-11-18 21"}, {StepSecond, "2026-11-18 211500"}} {
+		v, err := durationVar("op", TimeRange{End: fixedNow, Step: tc.step}, time.UTC, fixedNow)
+		if err != nil || v["end"] != tc.want {
+			t.Errorf("%s: %v %v", tc.step, v, err)
+		}
+	}
+	_, err = durationVar("op", TimeRange{Step: "WEEK"}, time.UTC, fixedNow)
+	mustCode(t, err, ErrorCodeValidation)
+	_, err = durationVar("op", TimeRange{Start: fixedNow, End: fixedNow.Add(-time.Hour)}, time.UTC, fixedNow)
+	mustCode(t, err, ErrorCodeValidation)
+	for _, bad := range []string{"UTC", "+9900", "+00x0", "+0099"} {
+		if _, err := parseOffset(bad); err == nil {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+	if loc, err := parseOffset("-0800"); err != nil {
+		t.Fatal(err)
+	} else if _, off := fixedNow.In(loc).Zone(); off != -8*3600 {
+		t.Fatal(off)
+	}
+	// unknown timezone format: UTC; time info failure: error
+	m2 := newMockOAP(t).on("getTimeInfo", jsonBody(200, `{"data":{"getTimeInfo":{"timezone":"Z","currentTimestamp":1}}}`)).
+		on("queryLogTagAutocompleteKeys", "queryLogTagAutocompleteKeys.ok")
+	if _, err := m2.client().Query().ListLogTagKeys(t.Context(), TimeRange{}); err != nil {
+		t.Fatal(err)
+	}
+	m2.on("getTimeInfo", jsonBody(500, `{}`))
+	_, err = m2.client().Query().ListLogTagKeys(t.Context(), TimeRange{})
+	mustCode(t, err, ErrorCodeUnavailable)
+}
+
+func TestCloseIdempotent(t *testing.T) {
+	m := newMockOAP(t)
+	c := m.client()
+	first, second := c.Close(), c.Close()
+	if first != nil || second != nil {
+		t.Fatal("close")
+	}
+	_, err := c.Ping(t.Context())
+	mustCode(t, err, ErrorCodeCancelled)
+	_, err = c.Query().ListServices(t.Context(), "")
+	mustCode(t, err, ErrorCodeCancelled)
+	_, err = c.Traces().WithBackend(TraceBackendZipkin).ListServices(t.Context())
+	mustCode(t, err, ErrorCodeCancelled)
+}
+
+func TestZipkinTextErrors(t *testing.T) {
+	rt := textErrorTransport{base: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 400, Header: http.Header{"Content-Type": {"text/*"}}}, nil
+	})}
+	res, err := rt.RoundTrip(&http.Request{})
+	if err != nil || res.Header.Get("Content-Type") != "text/plain; charset=utf-8" {
+		t.Fatal(res, err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

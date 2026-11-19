@@ -1,0 +1,50 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($c:TraceQueryCondition){queryBasicTraces(condition:$c){traces{segmentId traceIds}}}",
+      "variables": {
+        "c": {
+          "queryDuration": {
+            "start": "2026-11-18 2040",
+            "end": "2026-11-18 2115",
+            "step": "MINUTE"
+          },
+          "traceState": "ALL",
+          "queryOrder": "BY_START_TIME",
+          "paging": {
+            "pageNum": 1,
+            "pageSize": 20
+          }
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "errors": [
+        {
+          "message": "Exception while fetching data (/queryBasicTraces) : java.lang.UnsupportedOperationException: BanyanDB Trace Model changed, please use queryTraces",
+          "locations": [
+            {
+              "line": 1,
+              "column": 31
+            }
+          ],
+          "path": ["queryBasicTraces"],
+          "extensions": {
+            "classification": "DataFetchingException"
+          }
+        }
+      ],
+      "data": {
+        "queryBasicTraces": null
+      }
+    }
+  }
+}

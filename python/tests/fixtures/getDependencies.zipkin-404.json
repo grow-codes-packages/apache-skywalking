@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "http://apache-skywalking:9412/zipkin/api/v2/dependencies?endTs=1795036317000&lookback=3600000"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "content-type": "text/plain; charset=utf-8"
+    },
+    "body": "Status: 404\nDescription: Not Found\n"
+  }
+}

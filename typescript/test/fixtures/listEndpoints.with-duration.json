@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($s:ID!,$d:Duration){findEndpoint(serviceId:$s,limit:10,duration:$d){id name}}",
+      "variables": {
+        "s": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1",
+        "d": {
+          "start": "2026-11-18 2040",
+          "end": "2026-11-18 2115",
+          "step": "MINUTE"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "findEndpoint": []
+      }
+    }
+  }
+}

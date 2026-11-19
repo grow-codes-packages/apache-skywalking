@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:11800/opentelemetry.proto.collector.trace.v1.TraceService/Nope",
+    "body": "<OTLP protobuf, see verify/gen_payloads.py>"
+  },
+  "protocol": "grpc",
+  "response": {
+    "status": 12,
+    "headers": {
+      "content-type": "application/grpc",
+      "grpc-status": "12",
+      "grpc-message": "Method not found: opentelemetry.proto.collector.trace.v1.TraceService/Nope"
+    },
+    "body": "Method not found: opentelemetry.proto.collector.trace.v1.TraceService/Nope"
+  }
+}

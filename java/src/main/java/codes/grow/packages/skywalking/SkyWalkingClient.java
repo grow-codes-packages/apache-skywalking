@@ -1,51 +1,68 @@
 package codes.grow.packages.skywalking;
 
-import codes.grow.packages.skywalking.core.AuthenticationException;
 import codes.grow.packages.skywalking.core.CancelledException;
 import codes.grow.packages.skywalking.core.ConfigException;
 import codes.grow.packages.skywalking.core.EnvReader;
-import codes.grow.packages.skywalking.core.HealthCheck;
 import codes.grow.packages.skywalking.core.HealthStatus;
 import codes.grow.packages.skywalking.core.Hooks;
 import codes.grow.packages.skywalking.core.HttpTransport;
 import codes.grow.packages.skywalking.core.Logger;
 import codes.grow.packages.skywalking.core.RetryPolicy;
 import codes.grow.packages.skywalking.core.Secret;
+import codes.grow.packages.skywalking.core.SkyWalkingException;
 import codes.grow.packages.skywalking.core.TlsOptions;
 import codes.grow.packages.skywalking.core.TransportRequest;
 import codes.grow.packages.skywalking.core.TransportResponse;
 import codes.grow.packages.skywalking.core.UnsupportedException;
+import codes.grow.packages.skywalking.logging.BatchingLogClient;
+import codes.grow.packages.skywalking.tracing.TracingConfig;
+import codes.grow.packages.skywalking.tracing.TracingHandle;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Client for Apache SkyWalking.
+ * Client for Apache SkyWalking OAP.
  *
- * <p>Implements SPEC section 2.4. Thread-safe; create one per endpoint and close it when done.
+ * <p>Implements SPEC section 2.4 plus the SkyWalking modules: {@link #query()} (GraphQL query API),
+ * {@link #traces()} (SPEC {@code TraceQueryClient}), {@link #logs()} (SPEC {@code LogQueryClient}),
+ * {@link #logClient} (native log sender) and {@link #initTracing} (OTLP/gRPC tracing). Thread-safe;
+ * create one per OAP and close it when done.
  *
  * <pre>{@code
  * try (SkyWalkingClient client = SkyWalkingClient.fromEnv()) {
- *   HealthStatus health = client.health();
+ *   System.out.println(client.serverVersion());
+ *   client.query().listServices().forEach(s -> System.out.println(s.name()));
  * }
  * }</pre>
  *
  * <p>Every I/O method has a blocking form and an {@code …Async} form returning {@link
- * CompletableFuture}. This file is owned by the service package (generated once by sdk-kit); add
- * service modules here.
+ * CompletableFuture}.
  */
 public final class SkyWalkingClient implements AutoCloseable {
   private final SkyWalkingConfig config;
   private final HttpTransport transport;
+  private final SkyWalkingApi api;
+  private final SkyWalkingQueryClient query;
+  private final SkyWalkingTraceQueryClient traces;
+  private final SkyWalkingLogQueryClient logs;
   private final AtomicBoolean closed = new AtomicBoolean();
   private final List<AutoCloseable> resources = new ArrayList<>();
 
-  private SkyWalkingClient(SkyWalkingConfig config) {
+  private SkyWalkingClient(SkyWalkingConfig config, Clock clock) {
     this.config = config;
     this.transport = new HttpTransport(config.toTransportConfig());
+    this.api = new SkyWalkingApi(transport, config, clock);
+    this.query = new SkyWalkingQueryClient(api);
+    this.traces = new SkyWalkingTraceQueryClient(api, query, config.traceBackend());
+    this.logs =
+        new SkyWalkingLogQueryClient(query, api, SkyWalkingLogQueryClient.DEFAULT_MAX_SCAN_PAGES);
   }
 
   /**
@@ -56,8 +73,12 @@ public final class SkyWalkingClient implements AutoCloseable {
    * @throws ConfigException when TLS or proxy settings are invalid
    */
   public static SkyWalkingClient create(SkyWalkingConfig config) {
+    return create(config, Clock.systemUTC());
+  }
+
+  static SkyWalkingClient create(SkyWalkingConfig config, Clock clock) {
     config.validate();
-    return new SkyWalkingClient(config);
+    return new SkyWalkingClient(config, clock);
   }
 
   /**
@@ -79,6 +100,33 @@ public final class SkyWalkingClient implements AutoCloseable {
   }
 
   /**
+   * A standalone {@link BatchingLogClient} that sends native logs to {@code POST /v3/logs} (owns
+   * its connections; {@code close()} flushes and releases them).
+   *
+   * @param config configuration
+   * @param options service name, instance, resource and batch settings
+   * @return the log client
+   */
+  public static BatchingLogClient createLogClient(
+      SkyWalkingConfig config, SkyWalkingLogClientOptions options) {
+    config.validate();
+    HttpTransport t = new HttpTransport(config.toTransportConfig());
+    return logClient(t, options, true);
+  }
+
+  private static BatchingLogClient logClient(
+      HttpTransport t, SkyWalkingLogClientOptions options, boolean owns) {
+    SkyWalkingLogClientOptions o =
+        options == null ? SkyWalkingLogClientOptions.builder().build() : options;
+    SkyWalkingLogExporter exporter =
+        new SkyWalkingLogExporter(t, o.serviceName().orElse(null), owns);
+    return BatchingLogClient.builder(exporter)
+        .batchOptions(o.batchOptions())
+        .resource(o.resource())
+        .build();
+  }
+
+  /**
    * Returns the configuration.
    *
    * @return the configuration
@@ -97,7 +145,35 @@ public final class SkyWalkingClient implements AutoCloseable {
   }
 
   /**
-   * Registers a resource (watcher, renewer, batch processor) closed with the client.
+   * The GraphQL query API: services, endpoints, instances, native traces, logs, topology.
+   *
+   * @return the query client
+   */
+  public SkyWalkingQueryClient query() {
+    return query;
+  }
+
+  /**
+   * SPEC {@code TraceQueryClient} (Zipkin store for OTLP spans, native store for agents) with the
+   * configured {@link SkyWalkingConfig#traceBackend()}.
+   *
+   * @return the trace query client
+   */
+  public SkyWalkingTraceQueryClient traces() {
+    return traces;
+  }
+
+  /**
+   * SPEC {@code LogQueryClient}.
+   *
+   * @return the log query client
+   */
+  public SkyWalkingLogQueryClient logs() {
+    return logs;
+  }
+
+  /**
+   * Registers a resource closed with the client.
    *
    * @param resource the resource
    */
@@ -108,13 +184,15 @@ public final class SkyWalkingClient implements AutoCloseable {
   }
 
   /**
-   * Checks liveness ({@code GET /health}). Never throws for an unhealthy or unreachable service.
+   * Liveness: {@code GET /healthcheck} (OAP health checker, {@code SW_HEALTH_CHECKER=default}): 2xx
+   * → ok, other statuses → unhealthy. Without the health checker (404/405) falls back to GraphQL
+   * {@code checkHealth} (score 0 = ok). Never throws for an unhealthy or unreachable service (only
+   * {@link CancelledException} and {@link ConfigException}).
    *
    * @return the health status
-   * @throws CancelledException when interrupted or closed
    */
   public HealthStatus health() {
-    return HealthCheck.check(transport, "/health");
+    return HttpTransport.await(healthAsync(), "health");
   }
 
   /**
@@ -123,14 +201,65 @@ public final class SkyWalkingClient implements AutoCloseable {
    * @return a future with the health status
    */
   public CompletableFuture<HealthStatus> healthAsync() {
-    return HealthCheck.checkAsync(transport, "/health");
+    TransportRequest req =
+        TransportRequest.get("/healthcheck")
+            .operation("health")
+            .acceptAnyStatus()
+            .maxRetries(0)
+            .build();
+    return transport
+        .sendAsync(req)
+        .thenCompose(this::healthFrom)
+        .handle(
+            (h, err) -> {
+              if (err == null) {
+                return h;
+              }
+              SkyWalkingException e = HttpTransport.asSdkException(err, "health");
+              if (e instanceof CancelledException || e instanceof ConfigException) {
+                throw e;
+              }
+              if (e.httpStatus().isPresent()) {
+                Map<String, String> d = new LinkedHashMap<>();
+                d.put("httpStatus", Integer.toString(e.httpStatus().getAsInt()));
+                d.put("error", e.code().wireValue());
+                return new HealthStatus(false, "unhealthy", d);
+              }
+              return HealthStatus.unreachable(String.valueOf(e.getMessage()));
+            });
+  }
+
+  private CompletableFuture<HealthStatus> healthFrom(TransportResponse r) {
+    int status = r.status();
+    if (status >= 200 && status < 300) {
+      return CompletableFuture.completedFuture(HealthStatus.ok());
+    }
+    if (status != 404 && status != 405) {
+      return CompletableFuture.completedFuture(
+          new HealthStatus(false, "unhealthy", Map.of("httpStatus", Integer.toString(status))));
+    }
+    return api.field("{checkHealth{score details}}", Map.of(), "checkHealth", "health")
+        .thenApply(
+            check -> {
+              JsonNode score = check.get("score");
+              if (score != null && score.isNumber() && score.asInt() == 0) {
+                return HealthStatus.ok();
+              }
+              Map<String, String> d = new LinkedHashMap<>();
+              d.put("score", score != null && score.isNumber() ? score.asText() : "-1");
+              String details = JsonFields.str(check, "details");
+              if (!details.isEmpty()) {
+                d.put("details", api.redact(details));
+              }
+              return new HealthStatus(false, "unhealthy", d);
+            });
   }
 
   /**
-   * Performs an authenticated round trip ({@code GET /v1/ping}).
+   * Timed GraphQL round trip ({@code getTimeInfo}; also caches the OAP time zone). OAP has no query
+   * authentication: an authentication error only comes from a gateway in front of it.
    *
    * @return the latency
-   * @throws AuthenticationException on bad credentials
    */
   public Duration ping() {
     return HttpTransport.await(pingAsync(), "ping");
@@ -143,16 +272,14 @@ public final class SkyWalkingClient implements AutoCloseable {
    */
   public CompletableFuture<Duration> pingAsync() {
     long start = System.nanoTime();
-    return transport
-        .sendAsync(authorized(TransportRequest.get("/v1/ping").operation("ping")))
-        .thenApply(r -> Duration.ofNanos(System.nanoTime() - start));
+    return api.timeInfo().thenApply(t -> Duration.ofNanos(System.nanoTime() - start));
   }
 
   /**
-   * Returns the server version ({@code GET /version}).
+   * The OAP version from GraphQL {@code {version}}, for example {@code 10.4.0-b272da3}.
    *
    * @return the version string
-   * @throws UnsupportedException when the server exposes none
+   * @throws UnsupportedException when the server reports none
    */
   public String serverVersion() {
     return HttpTransport.await(serverVersionAsync(), "serverVersion");
@@ -164,24 +291,84 @@ public final class SkyWalkingClient implements AutoCloseable {
    * @return a future with the version
    */
   public CompletableFuture<String> serverVersionAsync() {
-    return transport
-        .sendAsync(
-            authorized(
-                TransportRequest.get("/version").operation("serverVersion").acceptStatus(404)))
-        .thenApply(SkyWalkingClient::version);
+    return api.field("{version}", Map.of(), "version", "serverVersion")
+        .thenApply(
+            v -> {
+              if (!v.isTextual() || v.asText().isEmpty()) {
+                throw new UnsupportedException(
+                    "serverVersion: the service does not report a version");
+              }
+              return v.asText();
+            });
   }
 
-  private static String version(TransportResponse r) {
-    JsonNode v = r.status() == 404 ? null : r.jsonNode().get("version");
-    if (v == null || !v.isTextual()) {
-      throw new UnsupportedException("serverVersion: the server exposes no version");
-    }
-    return v.asText();
+  /**
+   * Raw GraphQL (same as {@code query().graphql}).
+   *
+   * @param query GraphQL document
+   * @param variables variables (may be null)
+   * @return the response
+   */
+  public GraphQLResponse graphql(String query, Map<String, ?> variables) {
+    return this.query.graphql(query, variables);
   }
 
-  private TransportRequest authorized(TransportRequest.Builder b) {
-    config.token().ifPresent(t -> b.header("Authorization", "Bearer " + t.reveal()));
-    return b.build();
+  /**
+   * Raw GraphQL without variables.
+   *
+   * @param query GraphQL document
+   * @return the response
+   */
+  public GraphQLResponse graphql(String query) {
+    return this.query.graphql(query);
+  }
+
+  /**
+   * Asynchronous {@link #graphql(String, Map)}.
+   *
+   * @param query GraphQL document
+   * @param variables variables (may be null)
+   * @return a future with the response
+   */
+  public CompletableFuture<GraphQLResponse> graphqlAsync(String query, Map<String, ?> variables) {
+    return this.query.graphqlAsync(query, variables);
+  }
+
+  /**
+   * A {@link BatchingLogClient} that sends native logs ({@code POST /v3/logs}) over this client's
+   * connections. {@link #close()} flushes and closes it.
+   *
+   * @param options service name, instance, resource and batch settings
+   * @return the log client
+   */
+  public BatchingLogClient logClient(SkyWalkingLogClientOptions options) {
+    BatchingLogClient c = logClient(transport, options, false);
+    register(c);
+    return c;
+  }
+
+  /**
+   * A log client for one service with default batching.
+   *
+   * @param serviceName {@code service.name} of the records
+   * @return the log client
+   */
+  public BatchingLogClient logClient(String serviceName) {
+    return logClient(SkyWalkingLogClientOptions.forService(serviceName));
+  }
+
+  /**
+   * {@link SkyWalkingTracing#initTracing(TracingConfig, SkyWalkingConfig)} with this client's
+   * configuration (OTLP endpoint, protocol, headers, token, TLS). {@link #close()} shuts the handle
+   * down.
+   *
+   * @param tracing tracing config
+   * @return the handle
+   */
+  public TracingHandle initTracing(TracingConfig tracing) {
+    TracingHandle h = SkyWalkingTracing.initTracing(tracing, config);
+    register(h);
+    return h;
   }
 
   /**
@@ -193,7 +380,10 @@ public final class SkyWalkingClient implements AutoCloseable {
     return closed.get();
   }
 
-  /** Stops registered resources and the transport. Idempotent. */
+  /**
+   * Flushes and closes log clients and tracing handles created here, then releases the connections.
+   * Idempotent.
+   */
   @Override
   public void close() {
     if (!closed.compareAndSet(false, true)) {
@@ -237,7 +427,7 @@ public final class SkyWalkingClient implements AutoCloseable {
     }
 
     /**
-     * Sets the endpoint base URL.
+     * Sets the REST/GraphQL base URL.
      *
      * @param url URL
      * @return this builder
@@ -248,24 +438,91 @@ public final class SkyWalkingClient implements AutoCloseable {
     }
 
     /**
-     * Sets the API token.
+     * Sets the GraphQL path.
      *
-     * @param token token
+     * @param path path
      * @return this builder
      */
-    public Builder token(String token) {
-      config.token(token);
+    public Builder graphqlPath(String path) {
+      config.graphqlPath(path);
       return this;
     }
 
     /**
-     * Sets the API token.
+     * Sets the OTLP endpoint.
+     *
+     * @param endpoint URL
+     * @return this builder
+     */
+    public Builder otlpEndpoint(String endpoint) {
+      config.otlpEndpoint(endpoint);
+      return this;
+    }
+
+    /**
+     * Sets the OTLP protocol.
+     *
+     * @param protocol protocol
+     * @return this builder
+     */
+    public Builder otlpProtocol(OtlpProtocol protocol) {
+      config.otlpProtocol(protocol);
+      return this;
+    }
+
+    /**
+     * Adds an OTLP exporter header.
+     *
+     * @param name name
+     * @param value value
+     * @return this builder
+     */
+    public Builder otlpHeader(String name, String value) {
+      config.otlpHeader(name, value);
+      return this;
+    }
+
+    /**
+     * Sets the Zipkin query API base.
+     *
+     * @param url URL
+     * @return this builder
+     */
+    public Builder zipkinUrl(String url) {
+      config.zipkinUrl(url);
+      return this;
+    }
+
+    /**
+     * Sets the OAP gRPC token.
      *
      * @param token token
      * @return this builder
      */
-    public Builder token(Secret token) {
-      config.token(token);
+    public Builder authentication(String token) {
+      config.authentication(token);
+      return this;
+    }
+
+    /**
+     * Sets the OAP gRPC token.
+     *
+     * @param token token
+     * @return this builder
+     */
+    public Builder authentication(Secret token) {
+      config.authentication(token);
+      return this;
+    }
+
+    /**
+     * Sets the trace backend.
+     *
+     * @param backend backend
+     * @return this builder
+     */
+    public Builder traceBackend(TraceBackend backend) {
+      config.traceBackend(backend);
       return this;
     }
 

@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "{getTimeInfo{timezone currentTimestamp}}",
+      "variables": {}
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "getTimeInfo": {
+          "timezone": "+0000",
+          "currentTimestamp": 1795036301381
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($s:ID!,$d:Duration!){getServiceTopology(serviceId:$s,duration:$d){nodes{id name} calls{source target detectPoints}}}",
+      "variables": {
+        "s": "c3ctbmF0aXZlLWItMWZkZGY2NmE=.1",
+        "d": {
+          "start": "2026-11-18 2040",
+          "end": "2026-11-18 2115",
+          "step": "MINUTE"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "getServiceTopology": {
+          "nodes": [
+            {
+              "id": "c3ctbmF0aXZlLWItMWZkZGY2NmE=.1",
+              "name": "sw-native-b-1fddf66a"
+            },
+            {
+              "id": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1",
+              "name": "sw-native-a-1fddf66a"
+            }
+          ],
+          "calls": [
+            {
+              "source": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1",
+              "target": "c3ctbmF0aXZlLWItMWZkZGY2NmE=.1",
+              "detectPoints": ["SERVER"]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

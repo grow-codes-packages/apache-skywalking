@@ -1,0 +1,39 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/graphql",
+    "body": {
+      "query": "query($l:String){listServices(layer:$l){id name layers}}",
+      "variables": {
+        "l": "GENERAL"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "data": {
+        "listServices": [
+          {
+            "id": "c3ctb3RscC0xZmRkZjY2YQ==.1",
+            "name": "sw-otlp-1fddf66a",
+            "layers": ["GENERAL"]
+          },
+          {
+            "id": "c3ctbmF0aXZlLWItMWZkZGY2NmE=.1",
+            "name": "sw-native-b-1fddf66a",
+            "layers": ["GENERAL"]
+          },
+          {
+            "id": "c3ctbmF0aXZlLWEtMWZkZGY2NmE=.1",
+            "name": "sw-native-a-1fddf66a",
+            "layers": ["GENERAL"]
+          }
+        ]
+      }
+    }
+  }
+}

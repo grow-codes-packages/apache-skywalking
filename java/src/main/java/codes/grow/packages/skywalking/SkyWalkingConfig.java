@@ -11,39 +11,95 @@ import codes.grow.packages.skywalking.core.TlsOptions;
 import codes.grow.packages.skywalking.core.TransportConfig;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
- * Immutable configuration of a {@link SkyWalkingClient} (SPEC section 2.2).
+ * Immutable configuration of a {@link SkyWalkingClient} (SPEC section 2.2): the OAP REST/GraphQL
+ * endpoint (port 12800), the OTLP endpoint used by {@link SkyWalkingTracing#initTracing} (gRPC,
+ * port 11800), the Zipkin query API where OAP stores OTLP spans (port 9412) and the common
+ * transport settings.
  *
  * <p>Build one with {@link #builder()} or read it from the environment with {@link #fromEnv()}.
- * Precedence: explicit builder value &gt; SDK variable ({@link EnvReader#DEFAULT_PREFIX} + name)
- * &gt; vendor variables &gt; default. {@link #toString()} never prints credentials.
+ * Precedence: explicit builder value &gt; {@code GROW_APACHE_SKYWALKING_<NAME>} &gt; vendor
+ * variables ({@code GROW_SKYWALKING_<NAME>}, then the SkyWalking/OpenTelemetry names) &gt; default.
+ * {@link #toString()} never prints credentials.
  *
- * <p>This file is owned by the service package (generated once by sdk-kit); add service fields
- * here.
+ * <p>OAP has no query authentication: GraphQL and the native {@code /v3} HTTP API are open. When
+ * OAP runs behind an authenticating gateway, put its credentials in {@link Builder#header}.
  */
 public final class SkyWalkingConfig {
-  /** Default endpoint. */
-  public static final String DEFAULT_URL = "http://127.0.0.1:8080";
+  /** Default REST/GraphQL endpoint. */
+  public static final String DEFAULT_URL = "http://127.0.0.1:12800";
 
-  /** Vendor variables read for {@code url} after the SDK variable {@code URL}, in order. */
-  static final String[] URL_VENDOR_VARS = {};
+  /** Default GraphQL path below the URL. */
+  public static final String DEFAULT_GRAPHQL_PATH = "/graphql";
 
-  /** Vendor variables read for {@code token} after the SDK variable {@code TOKEN}, in order. */
-  static final String[] TOKEN_VENDOR_VARS = {};
+  /** OAP gRPC port (OTLP receiver). */
+  public static final int OTLP_GRPC_PORT = 11800;
 
-  /** Vendor variables read for the CA bundle after the SDK variable {@code CA_CERT}. */
-  static final String[] CA_CERT_VENDOR_VARS = {};
+  /** OAP Zipkin query port ({@code SW_QUERY_ZIPKIN}). */
+  public static final int ZIPKIN_QUERY_PORT = 9412;
+
+  /** Short prefix of the ticket, accepted as a vendor alias after the SDK prefix. */
+  static final String SHORT_PREFIX = "GROW_SKYWALKING_";
+
+  /** Vendor variables for {@code url}, after {@code GROW_APACHE_SKYWALKING_URL}. */
+  static final String[] URL_VENDOR_VARS = {
+    SHORT_PREFIX + "URL", "SW_GRAPHQL_URL", "SW_OAP_ADDRESS"
+  };
+
+  /** Vendor variables for {@code otlpEndpoint}. */
+  static final String[] OTLP_ENDPOINT_VENDOR_VARS = {
+    SHORT_PREFIX + "OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "SW_AGENT_COLLECTOR_BACKEND_SERVICES"
+  };
+
+  /** Vendor variables for {@code otlpProtocol}. */
+  static final String[] OTLP_PROTOCOL_VENDOR_VARS = {
+    SHORT_PREFIX + "OTLP_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_PROTOCOL"
+  };
+
+  /** Vendor variables for {@code otlpHeaders}. */
+  static final String[] OTLP_HEADERS_VENDOR_VARS = {
+    "OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_EXPORTER_OTLP_HEADERS"
+  };
+
+  /** Vendor variables for {@code authentication}. */
+  static final String[] AUTHENTICATION_VENDOR_VARS = {
+    SHORT_PREFIX + "AUTHENTICATION", "SW_AUTHENTICATION", "SW_AGENT_AUTHENTICATION"
+  };
+
+  /** Vendor variables for {@code zipkinUrl}. */
+  static final String[] ZIPKIN_URL_VENDOR_VARS = {SHORT_PREFIX + "ZIPKIN_URL", "SW_ZIPKIN_ADDRESS"};
+
+  private static final String COLLECTOR_VAR = "SW_AGENT_COLLECTOR_BACKEND_SERVICES";
+  private static final Pattern SCHEME = Pattern.compile("^[a-zA-Z][a-zA-Z0-9+.-]*://.*");
+  private static final Pattern GRAPHQL_SUFFIX = Pattern.compile("(?i)/graphql$");
+  private static final Pattern ZIPKIN_SUFFIX = Pattern.compile("(?i)/zipkin$");
 
   private final String url;
-  private final Secret token;
+  private final String graphqlPath;
+  private final String otlpEndpoint;
+  private final OtlpProtocol otlpProtocol;
+  private final Map<String, String> otlpHeaders;
+  private final String zipkinUrl;
+  private final Secret authentication;
+  private final TraceBackend traceBackend;
   private final Duration connectTimeout;
   private final Duration requestTimeout;
   private final Duration totalTimeout;
@@ -56,8 +112,18 @@ public final class SkyWalkingConfig {
   private final Logger logger;
 
   private SkyWalkingConfig(Builder b) {
-    this.url = b.url != null ? b.url : DEFAULT_URL;
-    this.token = b.token;
+    this.url = baseFromGraphqlUrl(b.url != null ? b.url : DEFAULT_URL);
+    this.graphqlPath = b.graphqlPath != null ? b.graphqlPath : DEFAULT_GRAPHQL_PATH;
+    this.otlpEndpoint =
+        stripSlash(b.otlpEndpoint != null ? b.otlpEndpoint : hostUrl(url, OTLP_GRPC_PORT, ""));
+    this.otlpProtocol = b.otlpProtocol != null ? b.otlpProtocol : OtlpProtocol.GRPC;
+    Map<String, String> oh = new LinkedHashMap<>();
+    b.otlpHeaders.forEach((k, v) -> oh.put(k.toLowerCase(Locale.ROOT), v));
+    this.otlpHeaders = Collections.unmodifiableMap(oh);
+    this.zipkinUrl =
+        stripSlash(b.zipkinUrl != null ? b.zipkinUrl : hostUrl(url, ZIPKIN_QUERY_PORT, "/zipkin"));
+    this.authentication = b.authentication;
+    this.traceBackend = b.traceBackend != null ? b.traceBackend : TraceBackend.AUTO;
     this.connectTimeout = b.connectTimeout != null ? b.connectTimeout : Duration.ofSeconds(10);
     this.requestTimeout = b.requestTimeout != null ? b.requestTimeout : Duration.ofSeconds(30);
     this.totalTimeout = b.totalTimeout != null ? b.totalTimeout : Duration.ofSeconds(120);
@@ -101,20 +167,103 @@ public final class SkyWalkingConfig {
   }
 
   /**
-   * Checks URL scheme, positive timeouts, retry limits and TLS pairs.
+   * Strips a trailing {@code /graphql} (and slashes) from a GraphQL URL: {@code
+   * http://oap:12800/graphql} → {@code http://oap:12800}.
+   *
+   * @param url URL
+   * @return the base URL
+   */
+  public static String baseFromGraphqlUrl(String url) {
+    return stripSlash(GRAPHQL_SUFFIX.matcher(stripSlash(url)).replaceAll(""));
+  }
+
+  /**
+   * Turns a SkyWalking agent collector address ({@code host:port[,host:port]}) into an OTLP
+   * endpoint URL ({@code http://host:port}, first entry).
+   *
+   * @param value collector address
+   * @return the endpoint URL
+   */
+  public static String collectorToUrl(String value) {
+    String first = value.split(",", -1)[0].trim();
+    return SCHEME.matcher(first).matches() ? first : "http://" + first;
+  }
+
+  /**
+   * Appends {@code /zipkin} to a Zipkin address that does not end with it.
+   *
+   * @param value Zipkin address, e.g. {@code http://oap:9412}
+   * @return the query API base, e.g. {@code http://oap:9412/zipkin}
+   */
+  public static String zipkinQueryUrl(String value) {
+    String base = stripSlash(value);
+    return ZIPKIN_SUFFIX.matcher(base).find() ? base : base + "/zipkin";
+  }
+
+  /**
+   * Parses OpenTelemetry-style headers {@code k1=v1,k2=v2} (keys lower-cased, values URL-decoded).
+   *
+   * @param raw header list
+   * @param source variable name for the error message (never the value)
+   * @return the headers
+   * @throws ConfigException when an entry is malformed
+   */
+  public static Map<String, String> parseOtlpHeaders(String raw, String source) {
+    Map<String, String> out = new LinkedHashMap<>();
+    for (String part : raw.split(",", -1)) {
+      if (part.isBlank()) {
+        continue;
+      }
+      int eq = part.indexOf('=');
+      String key = eq <= 0 ? "" : part.substring(0, eq).trim();
+      if (key.isEmpty()) {
+        throw new ConfigException("config: invalid value in " + source + " (expected key=value)");
+      }
+      String value;
+      try {
+        value = URLDecoder.decode(part.substring(eq + 1).trim(), StandardCharsets.UTF_8);
+      } catch (IllegalArgumentException e) {
+        throw new ConfigException("config: invalid value in " + source + " (bad percent-encoding)");
+      }
+      out.put(key.toLowerCase(Locale.ROOT), value);
+    }
+    return out;
+  }
+
+  private static String stripSlash(String url) {
+    String s = url;
+    while (s.endsWith("/")) {
+      s = s.substring(0, s.length() - 1);
+    }
+    return s;
+  }
+
+  private static String hostUrl(String base, int port, String path) {
+    try {
+      URI u = new URI(base);
+      if (u.getHost() != null && u.getScheme() != null) {
+        return u.getScheme().toLowerCase(Locale.ROOT) + "://" + u.getHost() + ":" + port + path;
+      }
+    } catch (URISyntaxException e) {
+      // validate() reports the bad URL
+    }
+    return "http://127.0.0.1:" + port + path;
+  }
+
+  /**
+   * Checks the URLs, protocol, backend, positive timeouts, TLS pairs and the proxy.
    *
    * @throws ConfigException when a rule is violated
    */
   public void validate() {
-    URI u;
-    try {
-      u = new URI(url);
-    } catch (URISyntaxException e) {
-      throw new ConfigException("config: url is not a valid URL");
+    checkHttpUrl(url, "url");
+    checkHttpUrl(otlpEndpoint, "otlpEndpoint");
+    checkHttpUrl(zipkinUrl, "zipkinUrl");
+    if (!graphqlPath.startsWith("/")) {
+      throw new ConfigException("config: graphqlPath must start with /");
     }
-    String scheme = u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
-    if (!(scheme.equals("http") || scheme.equals("https")) || u.getHost() == null) {
-      throw new ConfigException("config: url must use http or https and include a host");
+    if (authentication != null && authentication.reveal().isBlank()) {
+      throw new ConfigException("config: authentication must not be blank");
     }
     requirePositive("connectTimeout", connectTimeout);
     requirePositive("requestTimeout", requestTimeout);
@@ -129,6 +278,19 @@ public final class SkyWalkingConfig {
       } catch (URISyntaxException e) {
         throw new ConfigException("config: proxy is not a valid URL");
       }
+    }
+  }
+
+  private static void checkHttpUrl(String value, String field) {
+    URI u;
+    try {
+      u = new URI(value);
+    } catch (URISyntaxException e) {
+      throw new ConfigException("config: " + field + " is not a valid URL");
+    }
+    String scheme = u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
+    if (!(scheme.equals("http") || scheme.equals("https")) || u.getHost() == null) {
+      throw new ConfigException("config: " + field + " must use http or https and include a host");
     }
   }
 
@@ -155,13 +317,32 @@ public final class SkyWalkingConfig {
         .userAgentSuffix(userAgentSuffix)
         .hooks(hooks)
         .logger(logger)
-        .knownSecrets(
-            () -> token == null || token.isCleared() ? List.of() : List.of(token.reveal()))
+        .knownSecrets(this::knownSecrets)
         .build();
   }
 
   /**
-   * Returns the endpoint base URL.
+   * Credential values to redact from error messages and logs: the authentication token and the
+   * values of sensitive OTLP headers.
+   *
+   * @return the secret values
+   */
+  public List<String> knownSecrets() {
+    List<String> out = new ArrayList<>();
+    if (authentication != null && !authentication.isCleared()) {
+      out.add(authentication.reveal());
+    }
+    otlpHeaders.forEach(
+        (k, v) -> {
+          if (Redaction.isSensitiveHeader(k) || k.equals("authentication")) {
+            out.add(v);
+          }
+        });
+    return out;
+  }
+
+  /**
+   * Returns the REST/GraphQL base URL (port 12800, no trailing {@code /graphql}).
    *
    * @return the URL
    */
@@ -170,12 +351,78 @@ public final class SkyWalkingConfig {
   }
 
   /**
-   * Returns the API token.
+   * Returns the GraphQL path (default {@code /graphql}).
+   *
+   * @return the path
+   */
+  public String graphqlPath() {
+    return graphqlPath;
+  }
+
+  /**
+   * Returns the absolute GraphQL URL.
+   *
+   * @return {@code url + graphqlPath}
+   */
+  public String graphqlUrl() {
+    return url + graphqlPath;
+  }
+
+  /**
+   * Returns the OTLP endpoint of {@link SkyWalkingTracing#initTracing} (default {@code http://<url
+   * host>:11800}).
+   *
+   * @return the endpoint
+   */
+  public String otlpEndpoint() {
+    return otlpEndpoint;
+  }
+
+  /**
+   * Returns the OTLP protocol (default {@link OtlpProtocol#GRPC}).
+   *
+   * @return the protocol
+   */
+  public OtlpProtocol otlpProtocol() {
+    return otlpProtocol;
+  }
+
+  /**
+   * Returns the extra OTLP exporter headers (gRPC metadata), keys lower-case.
+   *
+   * @return immutable map
+   */
+  public Map<String, String> otlpHeaders() {
+    return otlpHeaders;
+  }
+
+  /**
+   * Returns the Zipkin query API base (default {@code http://<url host>:9412/zipkin}).
+   *
+   * @return the URL (ends with {@code /zipkin} unless configured otherwise)
+   */
+  public String zipkinUrl() {
+    return zipkinUrl;
+  }
+
+  /**
+   * Returns the OAP gRPC token ({@code SW_AUTHENTICATION}), sent as the {@code authentication}
+   * metadata on OTLP exports. OAP does not protect GraphQL or {@code /v3} with it.
    *
    * @return the token, or empty
    */
-  public Optional<Secret> token() {
-    return Optional.ofNullable(token);
+  public Optional<Secret> authentication() {
+    return Optional.ofNullable(authentication);
+  }
+
+  /**
+   * Returns the trace store read by {@link SkyWalkingClient#traces()} (default {@link
+   * TraceBackend#AUTO}).
+   *
+   * @return the backend
+   */
+  public TraceBackend traceBackend() {
+    return traceBackend;
   }
 
   /**
@@ -268,12 +515,55 @@ public final class SkyWalkingConfig {
     return logger;
   }
 
+  /**
+   * Returns a builder holding these values.
+   *
+   * @return builder copy
+   */
+  public Builder toBuilder() {
+    Builder b =
+        builder()
+            .url(url)
+            .graphqlPath(graphqlPath)
+            .otlpEndpoint(otlpEndpoint)
+            .otlpProtocol(otlpProtocol)
+            .otlpHeaders(otlpHeaders)
+            .zipkinUrl(zipkinUrl)
+            .authentication(authentication)
+            .traceBackend(traceBackend)
+            .connectTimeout(connectTimeout)
+            .requestTimeout(requestTimeout)
+            .totalTimeout(totalTimeout)
+            .retry(retry)
+            .tls(tls)
+            .proxy(proxy)
+            .userAgentSuffix(userAgentSuffix)
+            .hooks(hooks)
+            .logger(logger);
+    headers.forEach(b::header);
+    return b;
+  }
+
   @Override
   public String toString() {
+    Map<String, String> oh = new LinkedHashMap<>();
+    otlpHeaders.keySet().forEach(k -> oh.put(k, Redaction.REDACTED));
     return "SkyWalkingConfig{url="
         + Redaction.redactUrl(url)
-        + ", token="
-        + (token == null ? "null" : Redaction.REDACTED)
+        + ", graphqlPath="
+        + graphqlPath
+        + ", otlpEndpoint="
+        + Redaction.redactUrl(otlpEndpoint)
+        + ", otlpProtocol="
+        + otlpProtocol.wireValue()
+        + ", otlpHeaders="
+        + oh
+        + ", zipkinUrl="
+        + Redaction.redactUrl(zipkinUrl)
+        + ", authentication="
+        + (authentication == null ? "null" : Redaction.REDACTED)
+        + ", traceBackend="
+        + traceBackend.wireValue()
         + ", connectTimeout="
         + connectTimeout
         + ", requestTimeout="
@@ -301,7 +591,13 @@ public final class SkyWalkingConfig {
    */
   public static final class Builder {
     private String url;
-    private Secret token;
+    private String graphqlPath;
+    private String otlpEndpoint;
+    private OtlpProtocol otlpProtocol;
+    private final Map<String, String> otlpHeaders = new LinkedHashMap<>();
+    private String zipkinUrl;
+    private Secret authentication;
+    private TraceBackend traceBackend;
     private Duration connectTimeout;
     private Duration requestTimeout;
     private Duration totalTimeout;
@@ -316,7 +612,15 @@ public final class SkyWalkingConfig {
     private Builder() {}
 
     /**
-     * Fills every field that was not set explicitly from the environment.
+     * Fills every field that was not set explicitly from the environment: {@code url} ({@code URL},
+     * {@code GROW_SKYWALKING_URL}, {@code SW_GRAPHQL_URL} without {@code /graphql}, {@code
+     * SW_OAP_ADDRESS}), {@code GRAPHQL_PATH}, {@code otlpEndpoint} ({@code OTLP_ENDPOINT}, {@code
+     * OTEL_EXPORTER_OTLP_TRACES_ENDPOINT}, {@code OTEL_EXPORTER_OTLP_ENDPOINT}, {@code
+     * SW_AGENT_COLLECTOR_BACKEND_SERVICES} as {@code http://host:port}), {@code otlpProtocol},
+     * {@code otlpHeaders} ({@code OTEL_EXPORTER_OTLP_[TRACES_]HEADERS}), {@code authentication}
+     * ({@code AUTHENTICATION}, {@code SW_AUTHENTICATION}, {@code SW_AGENT_AUTHENTICATION}), {@code
+     * zipkinUrl} ({@code ZIPKIN_URL}, {@code SW_ZIPKIN_ADDRESS} plus {@code /zipkin}), {@code
+     * TRACE_BACKEND} and the common timeout, retry, TLS and proxy variables.
      *
      * @param env environment reader
      * @return this builder
@@ -326,8 +630,47 @@ public final class SkyWalkingConfig {
       if (url == null) {
         url = env.string("URL", URL_VENDOR_VARS).orElse(null);
       }
-      if (token == null) {
-        token = env.string("TOKEN", TOKEN_VENDOR_VARS).map(Secret::of).orElse(null);
+      if (graphqlPath == null) {
+        graphqlPath = env.string("GRAPHQL_PATH").orElse(null);
+      }
+      if (otlpEndpoint == null) {
+        Optional<String> v = env.string("OTLP_ENDPOINT", OTLP_ENDPOINT_VENDOR_VARS);
+        if (v.isPresent()) {
+          String source = env.source("OTLP_ENDPOINT", OTLP_ENDPOINT_VENDOR_VARS).orElse("");
+          otlpEndpoint = COLLECTOR_VAR.equals(source) ? collectorToUrl(v.get()) : v.get().trim();
+        }
+      }
+      if (otlpProtocol == null) {
+        Optional<String> v = env.string("OTLP_PROTOCOL", OTLP_PROTOCOL_VENDOR_VARS);
+        if (v.isPresent()) {
+          String source = env.source("OTLP_PROTOCOL", OTLP_PROTOCOL_VENDOR_VARS).orElse("");
+          otlpProtocol = OtlpProtocol.parse(v.get(), source);
+        }
+      }
+      if (otlpHeaders.isEmpty()) {
+        Optional<String> v = env.string("OTLP_HEADERS", OTLP_HEADERS_VENDOR_VARS);
+        if (v.isPresent()) {
+          String source = env.source("OTLP_HEADERS", OTLP_HEADERS_VENDOR_VARS).orElse("");
+          otlpHeaders.putAll(parseOtlpHeaders(v.get(), source));
+        }
+      }
+      if (authentication == null) {
+        authentication =
+            env.string("AUTHENTICATION", AUTHENTICATION_VENDOR_VARS).map(Secret::of).orElse(null);
+      }
+      if (zipkinUrl == null) {
+        zipkinUrl =
+            env.string("ZIPKIN_URL", ZIPKIN_URL_VENDOR_VARS)
+                .map(SkyWalkingConfig::zipkinQueryUrl)
+                .orElse(null);
+      }
+      if (traceBackend == null) {
+        String[] vendor = {SHORT_PREFIX + "TRACE_BACKEND"};
+        Optional<String> v = env.string("TRACE_BACKEND", vendor);
+        if (v.isPresent()) {
+          traceBackend =
+              TraceBackend.parse(v.get(), env.source("TRACE_BACKEND", vendor).orElse(""));
+        }
       }
       if (connectTimeout == null) {
         connectTimeout = env.duration("CONNECT_TIMEOUT").orElse(null);
@@ -348,20 +691,24 @@ public final class SkyWalkingConfig {
       }
       if (tls == null) {
         TlsOptions.Builder t = TlsOptions.builder();
-        env.string("CA_CERT", CA_CERT_VENDOR_VARS).ifPresent(p -> t.caCertPath(Paths.get(p)));
-        env.string("CLIENT_CERT").ifPresent(p -> t.clientCertPath(Paths.get(p)));
-        env.string("CLIENT_KEY").ifPresent(p -> t.clientKeyPath(Paths.get(p)));
-        env.bool("INSECURE_SKIP_VERIFY").ifPresent(t::insecureSkipVerify);
+        env.string("CA_CERT", SHORT_PREFIX + "CA_CERT").ifPresent(p -> t.caCertPath(Paths.get(p)));
+        env.string("CLIENT_CERT", SHORT_PREFIX + "CLIENT_CERT")
+            .ifPresent(p -> t.clientCertPath(Paths.get(p)));
+        env.string("CLIENT_KEY", SHORT_PREFIX + "CLIENT_KEY")
+            .ifPresent(p -> t.clientKeyPath(Paths.get(p)));
+        env.bool("INSECURE_SKIP_VERIFY", SHORT_PREFIX + "INSECURE_SKIP_VERIFY")
+            .ifPresent(t::insecureSkipVerify);
         tls = t.build();
       }
       if (proxy == null) {
-        proxy = env.string("PROXY").orElse(null);
+        proxy = env.string("PROXY", SHORT_PREFIX + "PROXY").orElse(null);
       }
       return this;
     }
 
     /**
-     * Sets the endpoint base URL.
+     * Sets the REST/GraphQL base URL (default {@code http://127.0.0.1:12800}); a trailing {@code
+     * /graphql} is stripped.
      *
      * @param url {@code http} or {@code https} URL
      * @return this builder
@@ -372,24 +719,105 @@ public final class SkyWalkingConfig {
     }
 
     /**
-     * Sets the API token.
+     * Sets the GraphQL path (default {@code /graphql}).
      *
-     * @param token token
+     * @param graphqlPath path starting with {@code /}
      * @return this builder
      */
-    public Builder token(Secret token) {
-      this.token = token;
+    public Builder graphqlPath(String graphqlPath) {
+      this.graphqlPath = graphqlPath;
       return this;
     }
 
     /**
-     * Sets the API token.
+     * Sets the OTLP endpoint (default {@code http://<url host>:11800}). Never point it at port
+     * 12800: OAP 10.4 serves OTLP over gRPC only.
      *
-     * @param token token
+     * @param otlpEndpoint {@code http} or {@code https} URL
      * @return this builder
      */
-    public Builder token(String token) {
-      this.token = token == null ? null : Secret.of(token);
+    public Builder otlpEndpoint(String otlpEndpoint) {
+      this.otlpEndpoint = otlpEndpoint;
+      return this;
+    }
+
+    /**
+     * Sets the OTLP protocol (default {@link OtlpProtocol#GRPC}).
+     *
+     * @param otlpProtocol protocol
+     * @return this builder
+     */
+    public Builder otlpProtocol(OtlpProtocol otlpProtocol) {
+      this.otlpProtocol = otlpProtocol;
+      return this;
+    }
+
+    /**
+     * Adds an OTLP exporter header (gRPC metadata).
+     *
+     * @param name header name (lower-cased)
+     * @param value header value
+     * @return this builder
+     */
+    public Builder otlpHeader(String name, String value) {
+      this.otlpHeaders.put(name, value);
+      return this;
+    }
+
+    /**
+     * Replaces the OTLP exporter headers.
+     *
+     * @param otlpHeaders headers
+     * @return this builder
+     */
+    public Builder otlpHeaders(Map<String, String> otlpHeaders) {
+      this.otlpHeaders.clear();
+      this.otlpHeaders.putAll(otlpHeaders);
+      return this;
+    }
+
+    /**
+     * Sets the Zipkin query API base (default {@code http://<url host>:9412/zipkin}).
+     *
+     * @param zipkinUrl {@code http} or {@code https} URL
+     * @return this builder
+     */
+    public Builder zipkinUrl(String zipkinUrl) {
+      this.zipkinUrl = zipkinUrl;
+      return this;
+    }
+
+    /**
+     * Sets the OAP gRPC token ({@code SW_AUTHENTICATION}).
+     *
+     * @param authentication token
+     * @return this builder
+     */
+    public Builder authentication(Secret authentication) {
+      this.authentication = authentication;
+      return this;
+    }
+
+    /**
+     * Sets the OAP gRPC token ({@code SW_AUTHENTICATION}).
+     *
+     * @param authentication token
+     * @return this builder
+     */
+    public Builder authentication(String authentication) {
+      this.authentication = authentication == null ? null : Secret.of(authentication);
+      return this;
+    }
+
+    /**
+     * Sets the trace store read by {@link SkyWalkingClient#traces()} (default {@link
+     * TraceBackend#AUTO}).
+     *
+     * @param traceBackend backend
+     * @return this builder
+     */
+    public Builder traceBackend(TraceBackend traceBackend) {
+      this.traceBackend = traceBackend;
       return this;
     }
 
@@ -460,7 +888,7 @@ public final class SkyWalkingConfig {
     }
 
     /**
-     * Adds a header sent with every request.
+     * Adds a header sent with every HTTP request (for example gateway credentials).
      *
      * @param name header name
      * @param value header value

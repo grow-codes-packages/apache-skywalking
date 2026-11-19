@@ -59,3 +59,39 @@ copyright and licence.
 
   CODE_OF_CONDUCT.md is adapted from the Contributor Covenant, version 2.1,
   https://www.contributor-covenant.org, licensed under CC BY 4.0.
+
+  Apache SkyWalking query protocol. The GraphQL queries, input types and
+  field names used by the query client (listServices, findService,
+  findEndpoint, listInstances, queryTraces, queryTrace, queryLogs,
+  queryLogTagAutocompleteKeys, getGlobalTopology, getServiceTopology,
+  getTimeInfo, checkHealth, version) are written from the GraphQL schema of
+  the SkyWalking query protocol (https://github.com/apache/skywalking-query-protocol),
+  Copyright The Apache Software Foundation, licensed under the Apache
+  License, Version 2.0. The native log data format of POST /v3/logs follows
+  the SkyWalking data collect protocol
+  (https://github.com/apache/skywalking-data-collect-protocol, Apache License,
+  Version 2.0). No SkyWalking source code is included.
+
+  sw8 header format. The sw8 and sw8-correlation codecs implement the
+  "Cross Process Propagation Headers Protocol v3" and "Cross Process
+  Correlation Headers Protocol v1" documented by Apache SkyWalking
+  (https://skywalking.apache.org/docs/main/latest/en/api/x-process-propagation-headers-v3/),
+  Copyright The Apache Software Foundation, licensed under the Apache
+  License, Version 2.0.
+
+  Zipkin v2 query API. OTLP spans are read back from OAP's Zipkin-compatible
+  query API; the span JSON model and query parameters follow the Zipkin API
+  specification (https://github.com/openzipkin/zipkin-api), Copyright The
+  OpenZipkin Authors, licensed under the Apache License, Version 2.0.
+
+  OpenTelemetry protocol (OTLP). Spans are exported with the OTLP protobuf
+  definitions (https://github.com/open-telemetry/opentelemetry-proto),
+  Copyright The OpenTelemetry Authors, licensed under the Apache License,
+  Version 2.0, through the generated bindings of the OpenTelemetry libraries
+  of each language (opentelemetry-js, opentelemetry-rust / opentelemetry-proto,
+  go.opentelemetry.io/proto/otlp, opentelemetry-proto for Python,
+  opentelemetry-java), which are runtime dependencies under the same licence.
+
+  Test fixtures. The recorded request/response fixtures in the test folders
+  were captured from apache/skywalking-oap-server:10.4.0 (Apache License,
+  Version 2.0) running locally with synthetic data.

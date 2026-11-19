@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "http://apache-skywalking:12800/v3/segments",
+    "body": {}
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "content-type": "text/plain; charset=utf-8"
+    },
+    "body": "Status: 400\nDescription: Bad Request\n"
+  }
+}
