@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/grow-codes-packages/apache-skywalking/compare/python-v0.1.1...python-v0.2.0) (2026-11-20)
+
+
+### Features
+
+* sync apache-skywalking to sdk-kit 0.4.0 (foundation API) ([#17](https://github.com/grow-codes-packages/apache-skywalking/issues/17)) ([0d2ca8f](https://github.com/grow-codes-packages/apache-skywalking/commit/0d2ca8fd700fc94261876fd80095bbccc0a7385b))
+
 ## [0.1.1](https://github.com/grow-codes-packages/apache-skywalking/compare/python-v0.1.0...python-v0.1.1) (2026-11-19)
 
 
